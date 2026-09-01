@@ -1,0 +1,724 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>دلوك | مواقيت الصلاة في نوردورن</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --ink: #071c18;
+      --ink-soft: #0c2b24;
+      --emerald: #16765e;
+      --emerald-bright: #2aa47f;
+      --gold: #ddb86b;
+      --gold-soft: #f0d69a;
+      --ivory: #fff8e9;
+      --muted: #a9bdb5;
+      --line: rgba(240, 214, 154, 0.2);
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      padding: 18px;
+      overflow-x: hidden;
+      color: var(--ivory);
+      font-family: "Noto Sans Arabic", "Segoe UI", sans-serif;
+      background:
+        radial-gradient(circle at 12% 8%, rgba(42, 164, 127, 0.22), transparent 34%),
+        radial-gradient(circle at 92% 88%, rgba(221, 184, 107, 0.12), transparent 38%),
+        var(--ink);
+    }
+
+    body::before {
+      content: "";
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      opacity: 0.11;
+      background-image:
+        linear-gradient(30deg, transparent 24%, var(--gold) 25%, transparent 26%),
+        linear-gradient(150deg, transparent 24%, var(--gold) 25%, transparent 26%);
+      background-size: 54px 94px;
+      mask-image: linear-gradient(to bottom, black, transparent 55%);
+    }
+
+    .app {
+      position: relative;
+      width: min(100%, 620px);
+      margin: 0 auto;
+      border: 1px solid var(--line);
+      border-radius: 28px;
+      overflow: hidden;
+      background: linear-gradient(145deg, rgba(12, 43, 36, 0.97), rgba(5, 23, 19, 0.98));
+      box-shadow: 0 28px 70px rgba(0, 0, 0, 0.44);
+    }
+
+    .app::after {
+      content: "";
+      position: absolute;
+      width: 180px;
+      height: 180px;
+      top: -112px;
+      right: -76px;
+      border: 1px solid rgba(221, 184, 107, 0.28);
+      border-radius: 50%;
+      box-shadow: 0 0 0 24px rgba(221, 184, 107, 0.04), 0 0 0 52px rgba(221, 184, 107, 0.03);
+    }
+
+    header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 24px 26px 16px;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 13px;
+    }
+
+    .mark {
+      position: relative;
+      width: 42px;
+      height: 42px;
+      border: 1px solid rgba(221, 184, 107, 0.44);
+      border-radius: 14px;
+      background: rgba(221, 184, 107, 0.08);
+    }
+
+    .mark::before {
+      content: "";
+      position: absolute;
+      width: 19px;
+      height: 19px;
+      top: 8px;
+      left: 8px;
+      border: 4px solid var(--gold);
+      border-top-color: transparent;
+      border-radius: 50%;
+      transform: rotate(28deg);
+    }
+
+    h1 {
+      margin: 0;
+      color: var(--gold-soft);
+      font-family: "Noto Naskh Arabic", Georgia, serif;
+      font-size: 25px;
+      font-weight: 500;
+      letter-spacing: 0;
+    }
+
+    .location {
+      margin-top: 3px;
+      color: var(--muted);
+      font-size: 11px;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+    }
+
+    .method {
+      z-index: 1;
+      padding: 6px 9px;
+      border: 1px solid rgba(221, 184, 107, 0.24);
+      border-radius: 999px;
+      color: var(--gold-soft);
+      font-size: 10px;
+      letter-spacing: 0.08em;
+    }
+
+    .hero {
+      position: relative;
+      margin: 0 18px;
+      padding: 24px;
+      border-radius: 22px;
+      overflow: hidden;
+      text-align: center;
+      background: linear-gradient(135deg, #16765e, #0d4e40);
+      box-shadow: inset 0 1px rgba(255, 255, 255, 0.08), 0 14px 30px rgba(0, 0, 0, 0.2);
+    }
+
+    .hero::before,
+    .hero::after {
+      content: "";
+      position: absolute;
+      width: 88px;
+      height: 88px;
+      border: 1px solid rgba(255, 248, 233, 0.12);
+      transform: rotate(45deg);
+    }
+
+    .hero::before { top: -58px; left: -32px; }
+    .hero::after { right: -32px; bottom: -58px; }
+
+    .eyebrow {
+      color: rgba(255, 248, 233, 0.68);
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.03em;
+      text-transform: uppercase;
+    }
+
+    #next-prayer {
+      margin-top: 6px;
+      font-family: "Noto Naskh Arabic", Georgia, serif;
+      font-size: 34px;
+      font-weight: 500;
+    }
+
+    #countdown {
+      margin-top: 2px;
+      color: var(--gold-soft);
+      font-size: 22px;
+      font-variant-numeric: tabular-nums;
+      letter-spacing: 0.12em;
+    }
+
+    .section-label {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin: 22px 24px 12px;
+      color: var(--muted);
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.03em;
+      text-transform: uppercase;
+    }
+
+    .section-label::after {
+      content: "";
+      flex: 1;
+      height: 1px;
+      background: var(--line);
+    }
+
+    .prayers {
+      display: grid;
+      grid-template-columns: repeat(5, 1fr);
+      gap: 8px;
+      padding: 0 18px;
+    }
+
+    .prayer {
+      padding: 13px 6px;
+      border: 1px solid rgba(255, 255, 255, 0.06);
+      border-radius: 15px;
+      text-align: center;
+      background: rgba(255, 255, 255, 0.025);
+      transition: 180ms ease;
+    }
+
+    .prayer.active {
+      border-color: rgba(221, 184, 107, 0.48);
+      background: rgba(221, 184, 107, 0.1);
+      transform: translateY(-2px);
+    }
+
+    .prayer-name {
+      display: block;
+      color: var(--muted);
+      font-size: 10px;
+      letter-spacing: 0.01em;
+      text-transform: uppercase;
+    }
+
+    .prayer-time {
+      display: block;
+      margin-top: 5px;
+      color: var(--ivory);
+      font-size: 14px;
+      font-weight: 650;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .sync-status {
+      margin: 10px 22px 0;
+      color: var(--muted);
+      font-size: 10px;
+      text-align: center;
+    }
+
+    .hadith-card {
+      position: relative;
+      min-height: 205px;
+      margin: 0 18px 18px;
+      padding: 22px 22px 18px;
+      border: 1px solid var(--line);
+      border-radius: 20px;
+      background: rgba(1, 13, 11, 0.33);
+    }
+
+    .quote-mark {
+      position: absolute;
+      top: 7px;
+      right: 18px;
+      color: rgba(221, 184, 107, 0.13);
+      font-family: Georgia, serif;
+      font-size: 72px;
+      line-height: 1;
+    }
+
+    #hadith {
+      position: relative;
+      margin: 0;
+      color: #f4ead7;
+      font-family: "Noto Naskh Arabic", Georgia, serif;
+      font-size: 17px;
+      line-height: 1.9;
+    }
+
+    .hadith-footer {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      margin-top: 16px;
+    }
+
+    #reference {
+      color: var(--gold);
+      font-size: 11px;
+      letter-spacing: 0.05em;
+      text-decoration: none;
+    }
+
+    #reference:hover { color: var(--gold-soft); }
+
+    .controls { display: flex; gap: 7px; }
+
+    button {
+      width: 34px;
+      height: 30px;
+      border: 1px solid rgba(221, 184, 107, 0.25);
+      border-radius: 10px;
+      color: var(--gold-soft);
+      background: rgba(221, 184, 107, 0.06);
+      font: inherit;
+      cursor: pointer;
+      transition: 150ms ease;
+    }
+
+    button:hover {
+      border-color: rgba(221, 184, 107, 0.56);
+      background: rgba(221, 184, 107, 0.14);
+    }
+
+    button:disabled {
+      opacity: 0.35;
+      cursor: default;
+    }
+
+    .rotation-track {
+      height: 2px;
+      margin-top: 17px;
+      overflow: hidden;
+      border-radius: 2px;
+      background: rgba(255, 255, 255, 0.05);
+    }
+
+    .rotation-progress {
+      width: 0;
+      height: 100%;
+      background: linear-gradient(to right, var(--emerald-bright), var(--gold));
+      animation: rotateProgress 600s linear infinite;
+    }
+
+    .status {
+      padding: 0 22px 17px;
+      color: #d99a80;
+      font-size: 11px;
+      text-align: center;
+    }
+
+    .status:empty { display: none; }
+
+    @keyframes rotateProgress { to { width: 100%; } }
+
+    @media (max-width: 520px) {
+      body { padding: 0; }
+      .app { min-height: 100vh; border: 0; border-radius: 0; }
+      header { padding-inline: 20px; }
+      .prayers { grid-template-columns: repeat(3, 1fr); }
+      .prayer:nth-child(4) { grid-column: 1 / 2; margin-left: 50%; }
+      .prayer:nth-child(5) { grid-column: 2 / 3; margin-left: 50%; }
+    }
+  </style>
+</head>
+<body>
+  <main class="app">
+    <header>
+      <div class="brand">
+        <div class="mark" aria-hidden="true"></div>
+        <div>
+          <h1>دلوك</h1>
+          <div class="location">نوردورن، ألمانيا</div>
+        </div>
+      </div>
+      <div class="method">١٢° / ١٢°</div>
+    </header>
+
+    <section class="hero" aria-live="polite">
+      <div class="eyebrow">الصلاة القادمة</div>
+      <div id="next-prayer">جارٍ التحميل</div>
+      <div id="countdown">--:--:--</div>
+    </section>
+
+    <div class="section-label">مواقيت اليوم</div>
+    <section class="prayers" aria-label="مواقيت الصلاة">
+      <div class="prayer" data-prayer="Fajr"><span class="prayer-name">الفجر</span><span class="prayer-time" id="fajr">--</span></div>
+      <div class="prayer" data-prayer="Dhuhr"><span class="prayer-name">الظهر</span><span class="prayer-time" id="dhuhr">--</span></div>
+      <div class="prayer" data-prayer="Asr"><span class="prayer-name">العصر</span><span class="prayer-time" id="asr">--</span></div>
+      <div class="prayer" data-prayer="Maghrib"><span class="prayer-name">المغرب</span><span class="prayer-time" id="maghrib">--</span></div>
+      <div class="prayer" data-prayer="Isha"><span class="prayer-name">العشاء</span><span class="prayer-time" id="isha">--</span></div>
+    </section>
+    <div class="sync-status" id="sync-status" aria-live="polite">لم يتم التحديث عبر الإنترنت بعد</div>
+
+    <div class="section-label">تذكرة من السنة</div>
+    <section class="hadith-card" aria-live="polite">
+      <div class="quote-mark" aria-hidden="true">“</div>
+      <blockquote id="hadith"></blockquote>
+      <div class="hadith-footer">
+        <a id="reference" href="#" target="_blank" rel="noreferrer"></a>
+        <div class="controls">
+          <button id="previous" type="button" aria-label="الحديث السابق">→</button>
+          <button id="next" type="button" aria-label="الحديث التالي">←</button>
+        </div>
+      </div>
+      <div class="rotation-track"><div class="rotation-progress" id="rotation-progress"></div></div>
+    </section>
+
+    <div class="status" id="status"></div>
+  </main>
+
+  <script>
+    const PRAYER_API = "https://api.aladhan.com/v1/timings";
+    const PRAYER_CACHE_KEY = "dulook-prayer-times";
+    const HADITH_API = "https://cdn.jsdelivr.net/gh/fawazahmed0/hadith-api@1/editions";
+    const HADITH_COLLECTIONS = [
+      { id: "bukhari", edition: "ara-bukhari", name: "صحيح البخاري", total: 7563 },
+      { id: "muslim", edition: "ara-muslim", name: "صحيح مسلم", total: 7563 }
+    ];
+
+    const prayerLabels = {
+      Fajr: "الفجر",
+      Dhuhr: "الظهر",
+      Asr: "العصر",
+      Maghrib: "المغرب",
+      Isha: "العشاء"
+    };
+    let prayers = {};
+    let prayerDate = "";
+    let prayerRetryTimer;
+    let lastOnlineUpdate = "";
+    let hadithHistory = [];
+    let hadithIndex = -1;
+    let hadithLoading = false;
+
+    function addMinutes(time, amount) {
+      const [hours, minutes] = time.split(":").map(Number);
+      const total = (hours * 60 + minutes + amount + 1440) % 1440;
+      return `${String(Math.floor(total / 60)).padStart(2, "0")}:${String(total % 60).padStart(2, "0")}`;
+    }
+
+    function formatTime(time) {
+      const [hours, minutes] = time.split(":").map(Number);
+      const suffix = hours >= 12 ? "م" : "ص";
+      return `${hours % 12 || 12}:${String(minutes).padStart(2, "0")} ${suffix}`;
+    }
+
+    function minuteOfDay(time) {
+      const [hours, minutes] = time.split(":").map(Number);
+      return hours * 60 + minutes;
+    }
+
+    function calculatePrayerTimes(date) {
+      const latitude = 52.4359731;
+      const longitude = 7.0707659;
+      const radians = Math.PI / 180;
+      const sin = value => Math.sin(value * radians);
+      const cos = value => Math.cos(value * radians);
+      const tan = value => Math.tan(value * radians);
+      const arcsin = value => Math.asin(value) / radians;
+      const arccos = value => Math.acos(value) / radians;
+      const arctan2 = (y, x) => Math.atan2(y, x) / radians;
+      const arccot = value => Math.atan2(1, value) / radians;
+      const normalize = (value, range) => ((value % range) + range) % range;
+
+      function julian(year, month, day) {
+        if (month <= 2) {
+          year -= 1;
+          month += 12;
+        }
+        const century = Math.floor(year / 100);
+        const correction = 2 - century + Math.floor(century / 4);
+        return Math.floor(365.25 * (year + 4716))
+          + Math.floor(30.6001 * (month + 1)) + day + correction - 1524.5;
+      }
+
+      const baseJulian = julian(date.getFullYear(), date.getMonth() + 1, date.getDate()) - longitude / 360;
+
+      function sunPosition(julianDate) {
+        const days = julianDate - 2451545;
+        const anomaly = normalize(357.529 + 0.98560028 * days, 360);
+        const longitudeMean = normalize(280.459 + 0.98564736 * days, 360);
+        const eclipticLongitude = normalize(longitudeMean + 1.915 * sin(anomaly) + 0.02 * sin(2 * anomaly), 360);
+        const obliquity = 23.439 - 0.00000036 * days;
+        let rightAscension = arctan2(cos(obliquity) * sin(eclipticLongitude), cos(eclipticLongitude)) / 15;
+        rightAscension = normalize(rightAscension, 24);
+        return {
+          declination: arcsin(sin(obliquity) * sin(eclipticLongitude)),
+          equation: longitudeMean / 15 - rightAscension
+        };
+      }
+
+      function midday(time) {
+        return normalize(12 - sunPosition(baseJulian + time / 24).equation, 24);
+      }
+
+      function angleTime(angle, time, beforeNoon = false) {
+        const declination = sunPosition(baseJulian + time / 24).declination;
+        const noon = midday(time);
+        const difference = arccos(
+          (-sin(angle) - sin(declination) * sin(latitude))
+          / (cos(declination) * cos(latitude))
+        ) / 15;
+        return noon + (beforeNoon ? -difference : difference);
+      }
+
+      function asrTime(time) {
+        const declination = sunPosition(baseJulian + time / 24).declination;
+        const angle = -arccot(1 + tan(Math.abs(latitude - declination)));
+        return angleTime(angle, time);
+      }
+
+      let times = { Fajr: 5, Dhuhr: 12, Asr: 13, Maghrib: 18, Isha: 18 };
+      for (let iteration = 0; iteration < 2; iteration += 1) {
+        const portion = Object.fromEntries(Object.entries(times).map(([name, time]) => [name, time / 24]));
+        times = {
+          Fajr: angleTime(12, portion.Fajr, true),
+          Dhuhr: midday(portion.Dhuhr),
+          Asr: asrTime(portion.Asr),
+          Maghrib: angleTime(0.833, portion.Maghrib),
+          Isha: angleTime(12, portion.Isha)
+        };
+      }
+
+      const timezone = -date.getTimezoneOffset() / 60;
+      const offset = timezone - longitude / 15;
+      const format = value => {
+        const roundedMinutes = Math.floor(normalize(value + offset, 24) * 60 + 0.5);
+        return `${String(Math.floor(roundedMinutes / 60) % 24).padStart(2, "0")}:${String(roundedMinutes % 60).padStart(2, "0")}`;
+      };
+
+      return {
+        Fajr: format(times.Fajr),
+        Dhuhr: addMinutes(format(times.Dhuhr), 5),
+        Asr: format(times.Asr),
+        Maghrib: format(times.Maghrib),
+        Isha: format(times.Isha)
+      };
+    }
+
+    function localDate() {
+      const date = new Date();
+      return [date.getFullYear(), date.getMonth() + 1, date.getDate()]
+        .map((value, index) => String(value).padStart(index ? 2 : 4, "0"))
+        .join("-");
+    }
+
+    function prayersFromTimings(timings) {
+      return {
+        Fajr: timings.Fajr,
+        Dhuhr: addMinutes(timings.Dhuhr, 5),
+        Asr: timings.Asr,
+        Maghrib: timings.Maghrib,
+        Isha: timings.Isha
+      };
+    }
+
+    function showOnlineUpdate(timestamp) {
+      const updateTime = Date.parse(timestamp);
+      if (!Number.isFinite(updateTime)) return;
+      if (lastOnlineUpdate && updateTime <= Date.parse(lastOnlineUpdate)) return;
+      lastOnlineUpdate = timestamp;
+      const formatted = new Intl.DateTimeFormat("ar", {
+        dateStyle: "medium",
+        timeStyle: "short"
+      }).format(new Date(updateTime));
+      document.getElementById("sync-status").textContent = `آخر تحديث عبر الإنترنت لمواقيت الصلاة: ${formatted}`;
+    }
+
+    async function loadBackgroundUpdate(date) {
+      try {
+        const response = await fetch("./online_prayer_times.json", { cache: "no-store" });
+        if (!response.ok) return;
+        const saved = await response.json();
+        showOnlineUpdate(saved.updatedAt);
+        const apiDate = saved.response?.data?.date?.gregorian?.date;
+        if (saved.response?.code === 200 && apiDate === date.split("-").reverse().join("-")) {
+          showPrayerTimes(prayersFromTimings(saved.response.data.timings));
+        }
+      } catch (_) {}
+    }
+
+    function showPrayerTimes(times) {
+      prayers = times;
+      prayerDate = localDate();
+      for (const [name, time] of Object.entries(prayers)) {
+        document.getElementById(name.toLowerCase()).textContent = formatTime(time);
+      }
+      updateCountdown();
+    }
+
+    async function loadPrayerTimes() {
+      const status = document.getElementById("status");
+      const date = localDate();
+
+      if (!prayers.Fajr) {
+        showPrayerTimes(calculatePrayerTimes(new Date()));
+        try {
+          const cached = JSON.parse(localStorage.getItem(PRAYER_CACHE_KEY));
+          showOnlineUpdate(cached?.updatedAt);
+          if (cached?.date === date && cached?.prayers?.Fajr) showPrayerTimes(cached.prayers);
+        } catch (_) {}
+      }
+
+      await loadBackgroundUpdate(date);
+
+      try {
+        const apiDate = date.split("-").reverse().join("-");
+        const response = await fetch(`${PRAYER_API}/${apiDate}?latitude=52.4359731&longitude=7.0707659&method=12`, { cache: "no-store" });
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const data = await response.json();
+        const freshPrayers = prayersFromTimings(data.data.timings);
+        const updatedAt = new Date().toISOString();
+        showPrayerTimes(freshPrayers);
+        showOnlineUpdate(updatedAt);
+        try { localStorage.setItem(PRAYER_CACHE_KEY, JSON.stringify({ date, prayers: freshPrayers, updatedAt })); } catch (_) {}
+        clearTimeout(prayerRetryTimer);
+        status.textContent = "";
+      } catch (error) {
+        console.error("Could not load prayer times", error);
+        status.textContent = "لا يوجد اتصال. المواقيت محسوبة محليًا وستتم محاولة التحديث خلال دقيقة.";
+        clearTimeout(prayerRetryTimer);
+        prayerRetryTimer = setTimeout(loadPrayerTimes, 60 * 1000);
+      }
+    }
+
+    function updateCountdown() {
+      if (!prayers.Fajr) return;
+      if (prayerDate !== localDate()) {
+        showPrayerTimes(calculatePrayerTimes(new Date()));
+        loadPrayerTimes();
+        return;
+      }
+      const now = new Date();
+      const nowSeconds = now.getHours() * 3600 + now.getMinutes() * 60 + now.getSeconds();
+      const schedule = Object.entries(prayers);
+      let next = schedule.find(([, time]) => minuteOfDay(time) * 60 > nowSeconds);
+      let targetSeconds;
+
+      if (next) {
+        targetSeconds = minuteOfDay(next[1]) * 60;
+      } else {
+        next = schedule[0];
+        targetSeconds = 86400 + minuteOfDay(next[1]) * 60;
+      }
+
+      const remaining = Math.max(0, targetSeconds - nowSeconds);
+      const hours = Math.floor(remaining / 3600);
+      const minutes = Math.floor((remaining % 3600) / 60);
+      const seconds = remaining % 60;
+      document.getElementById("next-prayer").textContent = `${prayerLabels[next[0]]} · ${formatTime(next[1])}`;
+      document.getElementById("countdown").textContent = [hours, minutes, seconds].map(value => String(value).padStart(2, "0")).join(":");
+      document.querySelectorAll(".prayer").forEach(card => card.classList.toggle("active", card.dataset.prayer === next[0]));
+    }
+
+    function arabicDigits(value) {
+      return String(value).replace(/\d/g, digit => "٠١٢٣٤٥٦٧٨٩"[digit]);
+    }
+
+    function showHadith(index) {
+      if (index < 0 || index >= hadithHistory.length) return;
+      hadithIndex = index;
+      const hadith = hadithHistory[hadithIndex];
+      document.getElementById("hadith").textContent = hadith.text;
+      const reference = document.getElementById("reference");
+      reference.textContent = `${hadith.reference} ↗`;
+      reference.href = hadith.url;
+      document.getElementById("previous").disabled = hadithIndex === 0;
+      document.getElementById("next").disabled = hadithLoading;
+      const progress = document.getElementById("rotation-progress");
+      progress.style.animation = "none";
+      requestAnimationFrame(() => { progress.style.animation = "rotateProgress 600s linear infinite"; });
+    }
+
+    async function loadRandomHadith(attempt = 0) {
+      if (hadithLoading && attempt === 0) return;
+      hadithLoading = true;
+      document.getElementById("next").disabled = true;
+      if (hadithIndex < 0) document.getElementById("hadith").textContent = "جارٍ تحميل حديث من الصحيحين…";
+
+      const collection = HADITH_COLLECTIONS[Math.floor(Math.random() * HADITH_COLLECTIONS.length)];
+      const number = Math.floor(Math.random() * collection.total) + 1;
+
+      try {
+        const response = await fetch(`${HADITH_API}/${collection.edition}/${number}.json`);
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const data = await response.json();
+        const record = data.hadiths?.find(item => item.text?.trim());
+        if (!record) throw new Error("Empty hadith");
+
+        const hadith = {
+          text: record.text.trim(),
+          reference: `${collection.name} ${arabicDigits(record.hadithnumber)}`,
+          url: `https://sunnah.com/${collection.id}:${record.hadithnumber}`
+        };
+        hadithHistory = hadithHistory.slice(0, hadithIndex + 1);
+        hadithHistory.push(hadith);
+        if (hadithHistory.length > 20) hadithHistory.shift();
+        try { localStorage.setItem("dulook-last-hadith", JSON.stringify(hadith)); } catch (_) {}
+        hadithLoading = false;
+        showHadith(hadithHistory.length - 1);
+      } catch (error) {
+        if (attempt < 3) {
+          hadithLoading = false;
+          return loadRandomHadith(attempt + 1);
+        }
+        hadithLoading = false;
+        document.getElementById("next").disabled = false;
+        if (hadithIndex < 0) {
+          document.getElementById("hadith").textContent = "تعذّر تحميل حديث الآن. تحقق من الاتصال ثم حاول مجددًا.";
+          document.getElementById("reference").textContent = "";
+        }
+      }
+    }
+
+    function nextHadith() {
+      if (hadithIndex < hadithHistory.length - 1) showHadith(hadithIndex + 1);
+      else loadRandomHadith();
+    }
+
+    document.getElementById("previous").addEventListener("click", () => showHadith(hadithIndex - 1));
+    document.getElementById("next").addEventListener("click", nextHadith);
+
+    try {
+      const cachedHadith = JSON.parse(localStorage.getItem("dulook-last-hadith"));
+      if (cachedHadith?.text) {
+        hadithHistory.push(cachedHadith);
+        showHadith(0);
+      }
+    } catch (_) {}
+    loadRandomHadith();
+    loadPrayerTimes();
+    setInterval(updateCountdown, 1000);
+    setInterval(nextHadith, 10 * 60 * 1000);
+    setInterval(loadPrayerTimes, 12 * 60 * 60 * 1000);
+  </script>
+</body>
+</html>

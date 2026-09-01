@@ -1,0 +1,24 @@
+#!/bin/bash
+
+set -euo pipefail
+
+app_dir="$HOME/.local/share/dulook"
+output="$app_dir/online_prayer_times.json"
+temporary=$(mktemp "$app_dir/.online_prayer_times.XXXXXX")
+trap 'rm -f "$temporary"' EXIT
+
+api_date=$(date +%d-%m-%Y)
+updated_at=$(date --iso-8601=seconds)
+url="https://api.aladhan.com/v1/timings/$api_date?latitude=52.4359731&longitude=7.0707659&method=12"
+
+curl --fail --silent --show-error \
+  --retry 3 --retry-all-errors --connect-timeout 15 --max-time 45 \
+  "$url" \
+  | jq --arg updated_at "$updated_at" \
+      'if .code == 200 and (.data.timings.Fajr | type) == "string"
+       then {updatedAt: $updated_at, response: .}
+       else error("Prayer-time API returned invalid data")
+       end' > "$temporary"
+
+mv "$temporary" "$output"
+trap - EXIT

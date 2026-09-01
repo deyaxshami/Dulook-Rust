@@ -1,0 +1,10 @@
+[Unit]
+Description=Check Dulook prayer times online twice daily
+
+[Timer]
+OnCalendar=*-*-* 06,18:00:00
+Persistent=true
+AccuracySec=1min
+
+[Install]
+WantedBy=timers.target

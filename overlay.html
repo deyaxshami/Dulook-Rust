@@ -1,0 +1,121 @@
+<script>
+
+async function load(){
+
+let res = await fetch("https://api.aladhan.com/v1/timingsByCity?city=Dubai&country=UAE&method=8");
+
+let data = await res.json();
+
+let t = data.data.timings;
+
+t.Fajr = adjust(t.Fajr,5);
+t.Isha = adjust(t.Isha,-14);
+
+set("fajr",t.Fajr);
+set("dhuhr",t.Dhuhr);
+set("asr",t.Asr);
+set("maghrib",t.Maghrib);
+set("isha",t.Isha);
+
+nextPrayer(t);
+
+}
+
+function adjust(time,minutes){
+
+let parts=time.split(":");
+
+let h=parseInt(parts[0]);
+let m=parseInt(parts[1]);
+
+m+=minutes;
+
+if(m>=60){h++;m-=60;}
+if(m<0){h--;m+=60;}
+
+return String(h).padStart(2,"0")+":"+String(m).padStart(2,"0");
+
+}
+
+function set(id,time){
+
+let p=time.split(":");
+
+let h=parseInt(p[0]);
+let m=p[1];
+
+let ampm=h>=12?"PM":"AM";
+
+h=h%12;
+if(h==0)h=12;
+
+document.getElementById(id).innerText=h+":"+m+" "+ampm;
+
+}
+
+function nextPrayer(t){
+
+let now=new Date();
+
+let prayers=[
+["Fajr",t.Fajr],
+["Dhuhr",t.Dhuhr],
+["Asr",t.Asr],
+["Maghrib",t.Maghrib],
+["Isha",t.Isha]
+];
+
+let next;
+
+for(let p of prayers){
+
+let parts=p[1].split(":");
+
+let d=new Date();
+
+d.setHours(parts[0]);
+d.setMinutes(parts[1]);
+d.setSeconds(0);
+
+if(d>now){
+next={name:p[0],time:d};
+break;
+}
+
+}
+
+if(!next){
+
+let parts=t.Fajr.split(":");
+
+let d=new Date();
+d.setDate(d.getDate()+1);
+d.setHours(parts[0]);
+d.setMinutes(parts[1]);
+
+next={name:"Fajr",time:d};
+
+}
+
+document.getElementById("nextPrayer").innerText=next.name;
+
+setInterval(()=>{
+
+let diff=next.time-new Date();
+
+let h=Math.floor(diff/3600000);
+let m=Math.floor((diff%3600000)/60000);
+let s=Math.floor((diff%60000)/1000);
+
+document.getElementById("countdown").innerText=
+String(h).padStart(2,"0")+":"+
+String(m).padStart(2,"0")+":"+
+String(s).padStart(2,"0");
+
+},1000);
+
+}
+
+load();
+
+</script>

@@ -1,0 +1,8 @@
+[Unit]
+Description=Update Dulook online prayer times
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=%h/.local/bin/dulook-update

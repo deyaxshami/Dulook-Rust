@@ -266,10 +266,12 @@
     #hadith {
       position: relative;
       margin: 0;
-      color: #f4ead7;
+      color: #fff9ed;
       font-family: "Noto Naskh Arabic", Georgia, serif;
-      font-size: 17px;
-      line-height: 1.9;
+      font-size: 20px;
+      font-weight: 500;
+      line-height: 2.05;
+      text-wrap: pretty;
     }
 
     .hadith-footer {
@@ -395,8 +397,8 @@
     <div class="status" id="status"></div>
   </main>
 
+  <script src="./SalatCalender2026_Nordhorn.js"></script>
   <script>
-    const PRAYER_CALENDAR_URL = "./SalatCalender2026_Nordhorn.csv";
     const HADITH_API = "https://cdn.jsdelivr.net/gh/fawazahmed0/hadith-api@1/editions";
     const HADITH_COLLECTIONS = [
       { id: "bukhari", edition: "ara-bukhari", name: "صحيح البخاري", total: 7563 },
@@ -489,12 +491,11 @@
       showPrayerTimes(times, dateKey);
     }
 
-    async function loadPrayerTimes() {
+    function loadPrayerTimes() {
       const status = document.getElementById("status");
       try {
-        const response = await fetch(PRAYER_CALENDAR_URL);
-        if (!response.ok) throw new Error(`HTTP ${response.status}`);
-        prayerCalendar = parsePrayerCalendar(await response.text());
+        if (typeof window.DULOOK_PRAYER_CSV !== "string") throw new Error("Prayer calendar is missing");
+        prayerCalendar = parsePrayerCalendar(window.DULOOK_PRAYER_CSV);
         showPrayerTimesForDate();
       } catch (error) {
         console.error("Could not load prayer calendar", error);

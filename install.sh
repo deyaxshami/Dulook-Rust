@@ -10,6 +10,7 @@ install -d "$app_dir" "$desktop_dir"
 if [[ "$repo_dir" != "$app_dir" ]]; then
   install -m 644 "$repo_dir/index.html" "$app_dir/index.html"
   install -m 644 "$repo_dir/SalatCalender2026_Nordhorn.csv" "$app_dir/SalatCalender2026_Nordhorn.csv"
+  install -m 644 "$repo_dir/SalatCalender2026_Nordhorn.js" "$app_dir/SalatCalender2026_Nordhorn.js"
 fi
 sed "s|@APP_DIR@|$app_dir|g" "$repo_dir/dulook.desktop.in" > "$desktop_dir/dulook.desktop"
 

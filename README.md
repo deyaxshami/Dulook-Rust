@@ -14,3 +14,9 @@ Requirement: Chromium.
 
 The installer adds the local calendar and desktop launcher. The Hadith section
 uses an online Hadith API, but prayer times are fully local.
+
+After editing the CSV, regenerate its browser-loadable copy with:
+
+```bash
+node scripts/build-calendar.mjs
+```

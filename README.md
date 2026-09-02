@@ -1,16 +1,16 @@
 # Dulook
 
-Dulook is a local Arabic prayer-time app for Nordhorn, Germany. It calculates
-prayer times offline, checks the AlAdhan API twice daily, and displays the last
-successful online update.
+Dulook is a local Arabic prayer-time app for Nordhorn, Germany. Its 2026 prayer
+times come directly from the included `SalatCalender2026_Nordhorn.csv` calendar,
+so prayer times work without an API or internet connection.
 
 ## Install
 
-Requirements: Chromium, curl, jq, and systemd.
+Requirement: Chromium.
 
 ```bash
 ./install.sh
 ```
 
-The installer adds the desktop launcher and enables online checks at 06:00 and
-18:00. Prayer times continue to work when the API or internet is unavailable.
+The installer adds the local calendar and desktop launcher. The Hadith section
+uses an online Hadith API, but prayer times are fully local.

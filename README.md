@@ -19,6 +19,15 @@ Hadith; a reviewed set of 100 bilingual Hadith is bundled for offline use.
 
 ## Install
 
+The repository is private. Authenticate Git once through GitHub CLI before
+using Omarchy's Git-based plugin commands:
+
+```bash
+gh auth setup-git
+```
+
+Then install the plugin:
+
 ```bash
 omarchy plugin add https://github.com/Karem-Shami/Dulook --enable
 ```

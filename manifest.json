@@ -1,0 +1,51 @@
+{
+  "schemaVersion": 1,
+  "id": "karem.dulook",
+  "name": "Dulook",
+  "version": "2.0.0",
+  "author": "Karem",
+  "description": "Local prayer times and bilingual Hadith reminders",
+  "license": "MIT",
+  "repository": "https://github.com/Karem-Shami/Dulook",
+  "kinds": ["service", "bar-widget"],
+  "entryPoints": { "service": "Service.qml", "barWidget": "BarWidget.qml" },
+  "barWidget": {
+    "displayName": "Dulook",
+    "description": "Local prayer times, notifications, Adhan audio, and Hadith",
+    "category": "Info",
+    "defaultSection": "center",
+    "allowMultiple": false,
+    "defaults": {
+      "language": "en",
+      "calendarPath": "",
+      "notificationsEnabled": true,
+      "notifyFajr": true,
+      "notifyDhuhr": true,
+      "notifyAsr": true,
+      "notifyMaghrib": true,
+      "notifyIsha": true,
+      "bypassDnd": false,
+      "soundEnabled": false,
+      "soundPath": "",
+      "soundVolume": 80,
+      "arabicUiFont": "Noto Sans Arabic",
+      "arabicHadithFont": "Noto Naskh Arabic"
+    },
+    "schema": [
+      { "key": "language", "type": "enum", "label": "Language", "options": ["en", "ar"], "defaultValue": "en" },
+      { "key": "calendarPath", "type": "path", "label": "Prayer calendar CSV", "defaultValue": "" },
+      { "key": "notificationsEnabled", "type": "boolean", "label": "Prayer notifications", "defaultValue": true },
+      { "key": "notifyFajr", "type": "boolean", "label": "Notify for Fajr", "defaultValue": true },
+      { "key": "notifyDhuhr", "type": "boolean", "label": "Notify for Dhuhr", "defaultValue": true },
+      { "key": "notifyAsr", "type": "boolean", "label": "Notify for Asr", "defaultValue": true },
+      { "key": "notifyMaghrib", "type": "boolean", "label": "Notify for Maghrib", "defaultValue": true },
+      { "key": "notifyIsha", "type": "boolean", "label": "Notify for Isha", "defaultValue": true },
+      { "key": "bypassDnd", "type": "boolean", "label": "Bypass Do Not Disturb", "defaultValue": false },
+      { "key": "soundEnabled", "type": "boolean", "label": "Adhan sound", "defaultValue": false },
+      { "key": "soundPath", "type": "path", "label": "Adhan MP3", "defaultValue": "" },
+      { "key": "soundVolume", "type": "integer", "label": "Adhan volume", "min": 0, "max": 100, "step": 5, "defaultValue": 80 },
+      { "key": "arabicUiFont", "type": "string", "label": "Arabic UI font", "defaultValue": "Noto Sans Arabic" },
+      { "key": "arabicHadithFont", "type": "string", "label": "Arabic Hadith font", "defaultValue": "Noto Naskh Arabic" }
+    ]
+  }
+}

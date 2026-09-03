@@ -1,9 +1,0 @@
-[Desktop Entry]
-Type=Application
-Name=دلوك
-Comment=مواقيت الصلاة في نوردورن والعد التنازلي للصلاة القادمة
-Exec=chromium --app=file://@APP_DIR@/index.html --class=Dulook --window-size=650,760
-Icon=preferences-system-time
-Terminal=false
-Categories=Utility;
-StartupWMClass=Dulook

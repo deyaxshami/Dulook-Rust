@@ -1,0 +1,14 @@
+{
+  "name": "dulook",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build:hadith": "node scripts/build-hadith-fallback.mjs",
+    "check:hadith": "node scripts/build-hadith-fallback.mjs --check",
+    "validate": "node scripts/validate-data.mjs",
+    "test": "node --test"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

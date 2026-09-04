@@ -110,7 +110,7 @@ Item {
   }
 
   function formatTime(time) {
-    return localizedDigits(String(time || "--:--"))
+    return localizedDigits(Model.formatTime12Hour(time || "--:--"))
   }
 
   function timezoneLabel() {

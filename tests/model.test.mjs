@@ -58,6 +58,13 @@ test("rejects missing columns, duplicate dates, and invalid times", () => {
   assert.throws(() => Model.parseCalendar("Date,Fajr,Dhuhr,Asr,Maghrib,Isha\n01/01/2026,05:00,12:00,15:00,20:00,18:00\n02/01/2026,05:00,12:00,15:00,20:00,22:00"), /Invalid overnight Isha/);
 });
 
+test("formats prayer times with a 12-hour clock", () => {
+  assert.equal(Model.formatTime12Hour("00:10"), "12:10 AM");
+  assert.equal(Model.formatTime12Hour("05:27"), "5:27 AM");
+  assert.equal(Model.formatTime12Hour("12:00"), "12:00 PM");
+  assert.equal(Model.formatTime12Hour("21:34"), "9:34 PM");
+});
+
 test("translation dictionaries have complete matching keys", () => {
   assert.deepEqual(Object.keys(Translations.STRINGS.ar).sort(), Object.keys(Translations.STRINGS.en).sort());
   assert.equal(Translations.text("settings", "en"), "Settings");

@@ -63,7 +63,8 @@ Required columns can use English or Arabic headers:
 Additional columns are ignored. Dates may use `DD/MM/YYYY` or `YYYY-MM-DD`.
 Times may use 24-hour `HH:mm` or 12-hour `hh:mm am/pm` notation. A time after
 midnight that appears after a later evening prayer is treated as belonging to
-the following civil day.
+the following civil day. Prayer times are displayed using a 12-hour clock with
+`AM`/`PM`.
 
 ## Notifications And Sound
 

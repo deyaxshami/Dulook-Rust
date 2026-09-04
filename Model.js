@@ -182,6 +182,17 @@ function minuteOfDay(time) {
   return Number(parts[0]) * 60 + Number(parts[1])
 }
 
+function formatTime12Hour(time) {
+  var text = trim(time)
+  var match = /^(\d{1,2}):(\d{2})$/.exec(text)
+  if (!match) return text
+  var hour = Number(match[1])
+  var minute = Number(match[2])
+  if (hour > 23 || minute > 59) return text
+  var displayHour = hour % 12 || 12
+  return displayHour + ":" + pad2(minute) + (hour < 12 ? " AM" : " PM")
+}
+
 function eventsForRow(key, prayers) {
   var base = dateFromKey(key)
   var events = []

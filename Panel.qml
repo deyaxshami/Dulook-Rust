@@ -94,7 +94,7 @@ Panel {
     focusTarget: keyCatcher
     contentWidth: popup.fittedContentWidth(Style.space(570))
     contentHeight: popup.fittedContentHeight(root.settingsView ? settingsColumn.implicitHeight : mainColumn.implicitHeight,
-      Style.space(560))
+      popup.screenH * 0.8)
 
     PanelKeyCatcher {
       id: keyCatcher

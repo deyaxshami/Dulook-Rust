@@ -44,17 +44,6 @@ Panel {
     if (bar && "centerHoverRevealSuppressed" in bar) bar.centerHoverRevealSuppressed = value
   }
 
-  function revealDropdown(dropdown) {
-    if (!dropdown || !dropdown.popupOpen) return
-    Qt.callLater(function() {
-      var point = dropdown.mapToItem(panelFlick.contentItem, 0, 0)
-      var menuBottom = point.y + dropdown.height + panelFlick.bottomMargin
-      var maxY = Math.max(0, panelFlick.contentHeight + panelFlick.bottomMargin - panelFlick.height)
-      if (menuBottom > panelFlick.contentY + panelFlick.height)
-        panelFlick.contentY = Math.min(maxY, menuBottom - panelFlick.height)
-    })
-  }
-
   function persistSettings(values) {
     var entry = { id: moduleName }
     for (var key in settings) if (key !== "id") entry[key] = settings[key]
@@ -126,17 +115,10 @@ Panel {
         anchors.fill: parent
         contentWidth: width
         contentHeight: root.settingsView ? settingsColumn.implicitHeight : mainColumn.implicitHeight
-        bottomMargin: {
-          var dropdown = uiFontDropdown.popupOpen ? uiFontDropdown
-            : (hadithFontDropdown.popupOpen ? hadithFontDropdown : null)
-          if (!dropdown) return 0
-          var rows = Math.min(8, dropdown.options.length)
-          return rows * (dropdown.popupRowHeight + Style.spacing.labelGap) + Style.spacing.sm
-        }
         clip: true
         boundsBehavior: Flickable.StopAtBounds
         flickableDirection: Flickable.VerticalFlick
-        interactive: contentHeight + bottomMargin > height
+        interactive: contentHeight > height
         ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
 
         Column {
@@ -387,6 +369,26 @@ Panel {
             }
           }
 
+          PanelSectionHeader { text: root.tr("appearance"); foreground: root.foreground; fontFamily: root.uiFont }
+          Dropdown {
+            width: parent.width
+            label: root.tr("uiFont")
+            value: root.service ? root.service.arabicUiFont : "Noto Sans Arabic"
+            options: root.fontOptions()
+            foreground: root.foreground
+            fontFamily: root.uiFont
+            onChanged: function(value) { root.persistSettings({ arabicUiFont: value }) }
+          }
+          Dropdown {
+            width: parent.width
+            label: root.tr("hadithFont")
+            value: root.service ? root.service.arabicHadithFont : "Noto Naskh Arabic"
+            options: root.fontOptions()
+            foreground: root.foreground
+            fontFamily: root.uiFont
+            onChanged: function(value) { root.persistSettings({ arabicHadithFont: value }) }
+          }
+
           PanelSectionHeader { text: root.tr("language"); foreground: root.foreground; fontFamily: root.uiFont }
           Dropdown {
             width: parent.width
@@ -510,29 +512,6 @@ Panel {
             font.pixelSize: Style.font.bodySmall
           }
 
-          PanelSectionHeader { text: root.tr("appearance"); foreground: root.foreground; fontFamily: root.uiFont }
-          Dropdown {
-            id: uiFontDropdown
-            width: parent.width
-            label: root.tr("uiFont")
-            value: root.service ? root.service.arabicUiFont : "Noto Sans Arabic"
-            options: root.fontOptions()
-            foreground: root.foreground
-            fontFamily: root.uiFont
-            onChanged: function(value) { root.persistSettings({ arabicUiFont: value }) }
-            onPopupOpenChanged: root.revealDropdown(uiFontDropdown)
-          }
-          Dropdown {
-            id: hadithFontDropdown
-            width: parent.width
-            label: root.tr("hadithFont")
-            value: root.service ? root.service.arabicHadithFont : "Noto Naskh Arabic"
-            options: root.fontOptions()
-            foreground: root.foreground
-            fontFamily: root.uiFont
-            onChanged: function(value) { root.persistSettings({ arabicHadithFont: value }) }
-            onPopupOpenChanged: root.revealDropdown(hadithFontDropdown)
-          }
         }
       }
     }

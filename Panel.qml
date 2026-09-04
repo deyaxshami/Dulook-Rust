@@ -367,147 +367,184 @@ Panel {
             }
           }
 
-          PanelSectionHeader { text: root.tr("appearance"); foreground: root.foreground; fontFamily: root.uiFont }
-          Dropdown {
+          SettingsGroup {
             width: parent.width
-            label: root.tr("uiFont")
-            value: root.service ? root.service.arabicUiFont : "Noto Sans Arabic"
-            options: root.fontOptions()
             foreground: root.foreground
-            fontFamily: root.uiFont
-            onChanged: function(value) { root.persistSettings({ arabicUiFont: value }) }
-          }
-          Dropdown {
-            width: parent.width
-            label: root.tr("hadithFont")
-            value: root.service ? root.service.arabicHadithFont : "Noto Naskh Arabic"
-            options: root.fontOptions()
-            foreground: root.foreground
-            fontFamily: root.uiFont
-            onChanged: function(value) { root.persistSettings({ arabicHadithFont: value }) }
+            PanelSectionHeader { text: root.tr("appearance"); foreground: root.foreground; fontFamily: root.uiFont }
+            Dropdown {
+              width: parent.width
+              label: root.tr("uiFont")
+              value: root.service ? root.service.arabicUiFont : "Noto Sans Arabic"
+              options: root.fontOptions()
+              foreground: root.foreground
+              fontFamily: root.uiFont
+              onChanged: function(value) { root.persistSettings({ arabicUiFont: value }) }
+            }
+            Dropdown {
+              width: parent.width
+              label: root.tr("hadithFont")
+              value: root.service ? root.service.arabicHadithFont : "Noto Naskh Arabic"
+              options: root.fontOptions()
+              foreground: root.foreground
+              fontFamily: root.uiFont
+              onChanged: function(value) { root.persistSettings({ arabicHadithFont: value }) }
+            }
           }
 
-          PanelSectionHeader { text: root.tr("language"); foreground: root.foreground; fontFamily: root.uiFont }
-          Dropdown {
+          SettingsGroup {
             width: parent.width
-            value: root.service ? root.service.language : "en"
-            options: [{ value: "en", label: "English" }, { value: "ar", label: "العربية" }]
             foreground: root.foreground
-            fontFamily: root.uiFont
-            showLabel: false
-            onChanged: function(value) { root.persistSettings({ language: value }) }
+            PanelSectionHeader { text: root.tr("language"); foreground: root.foreground; fontFamily: root.uiFont }
+            Dropdown {
+              width: parent.width
+              value: root.service ? root.service.language : "en"
+              options: [{ value: "en", label: "English" }, { value: "ar", label: "العربية" }]
+              foreground: root.foreground
+              fontFamily: root.uiFont
+              showLabel: false
+              onChanged: function(value) { root.persistSettings({ language: value }) }
+            }
           }
 
-          PanelSectionHeader { text: root.tr("calendar"); foreground: root.foreground; fontFamily: root.uiFont }
-          TextField {
+          SettingsGroup {
             width: parent.width
-            text: root.service ? root.service.calendarPath : ""
-            placeholderText: root.tr("calendarPath")
             foreground: root.foreground
-            onEditingFinished: root.persistSettings({ calendarPath: text.trim() })
-          }
-          Row {
-            width: parent.width
-            spacing: Style.spacing.sm
-            Button { text: root.tr("chooseFile"); bordered: true; focusable: true; foreground: root.foreground; onClicked: calendarDialog.open() }
-            Button { text: root.tr("reload"); bordered: true; focusable: true; foreground: root.foreground; enabled: root.service && root.service.calendarPath !== ""; onClicked: root.service.reloadCalendar() }
-            Button { text: root.tr("clear"); bordered: true; focusable: true; foreground: root.foreground; enabled: root.service && root.service.calendarPath !== ""; onClicked: root.persistSettings({ calendarPath: "" }) }
-          }
-          Text {
-            width: parent.width
-            textFormat: Text.PlainText
-            text: root.service && root.service.coverage !== "" ? root.tr("coverage") + ": " + root.service.coverage : (root.service ? root.service.calendarError : "")
-            color: root.service && root.service.calendarReady ? Qt.darker(root.foreground, 1.4) : Color.urgent
-            font.family: root.uiFont
-            font.pixelSize: Style.font.bodySmall
-            wrapMode: Text.WordWrap
+            PanelSectionHeader { text: root.tr("calendar"); foreground: root.foreground; fontFamily: root.uiFont }
+            TextField {
+              width: parent.width
+              text: root.service ? root.service.calendarPath : ""
+              placeholderText: root.tr("calendarPath")
+              foreground: root.foreground
+              onEditingFinished: root.persistSettings({ calendarPath: text.trim() })
+            }
+            Row {
+              id: calendarActions
+              width: parent.width
+              spacing: Style.spacing.sm
+              Button { width: (calendarActions.width - calendarActions.spacing * 2) / 3; text: root.tr("chooseFile"); bordered: true; focusable: true; foreground: root.foreground; onClicked: calendarDialog.open() }
+              Button { width: (calendarActions.width - calendarActions.spacing * 2) / 3; text: root.tr("reload"); bordered: true; focusable: true; foreground: root.foreground; enabled: root.service && root.service.calendarPath !== ""; onClicked: root.service.reloadCalendar() }
+              Button { width: (calendarActions.width - calendarActions.spacing * 2) / 3; text: root.tr("clear"); bordered: true; focusable: true; foreground: root.foreground; enabled: root.service && root.service.calendarPath !== ""; onClicked: root.persistSettings({ calendarPath: "" }) }
+            }
+            Text {
+              width: parent.width
+              textFormat: Text.PlainText
+              text: root.service && root.service.coverage !== "" ? root.tr("coverage") + ": " + root.service.coverage : (root.service ? root.service.calendarError : "")
+              color: root.service && root.service.calendarReady ? Qt.darker(root.foreground, 1.4) : Color.urgent
+              font.family: root.uiFont
+              font.pixelSize: Style.font.bodySmall
+              wrapMode: Text.WordWrap
+            }
           }
 
-          PanelSectionHeader { text: root.tr("notifications"); foreground: root.foreground; fontFamily: root.uiFont }
-          Toggle {
+          SettingsGroup {
             width: parent.width
-            label: root.tr("enableNotifications")
-            description: root.tr("enableNotificationsHint")
-            checked: root.service ? root.service.notificationsEnabled : true
             foreground: root.foreground
-            fontFamily: root.uiFont
-            onClicked: root.persistSettings({ notificationsEnabled: !checked })
-          }
-          Toggle {
-            width: parent.width
-            label: root.tr("bypassDnd")
-            description: root.tr("bypassDndHint")
-            checked: root.service ? root.service.bypassDnd : false
-            foreground: root.foreground
-            fontFamily: root.uiFont
-            onClicked: root.persistSettings({ bypassDnd: !checked })
-          }
-          Grid {
-            id: prayerToggleGrid
-            width: parent.width
-            columns: 2
-            columnSpacing: Style.spacing.sm
-            rowSpacing: Style.spacing.sm
-            Repeater {
-              model: ["Fajr", "Dhuhr", "Asr", "Maghrib", "Isha"]
-              Toggle {
-                required property string modelData
-                width: (prayerToggleGrid.width - prayerToggleGrid.columnSpacing) / 2
-                label: root.service ? root.service.prayerName(modelData) : modelData
-                checked: root.service ? root.service.prayerEnabled(modelData) : true
-                foreground: root.foreground
-                fontFamily: root.uiFont
-                onClicked: {
-                  var values = {}
-                  values["notify" + modelData] = !checked
-                  root.persistSettings(values)
+            PanelSectionHeader { text: root.tr("notifications"); foreground: root.foreground; fontFamily: root.uiFont }
+            Toggle {
+              width: parent.width
+              label: root.tr("enableNotifications")
+              description: root.tr("enableNotificationsHint")
+              checked: root.service ? root.service.notificationsEnabled : true
+              foreground: root.foreground
+              fontFamily: root.uiFont
+              onClicked: root.persistSettings({ notificationsEnabled: !checked })
+            }
+            Toggle {
+              width: parent.width
+              label: root.tr("bypassDnd")
+              description: root.tr("bypassDndHint")
+              checked: root.service ? root.service.bypassDnd : false
+              foreground: root.foreground
+              fontFamily: root.uiFont
+              onClicked: root.persistSettings({ bypassDnd: !checked })
+            }
+            Grid {
+              id: prayerToggleGrid
+              width: parent.width
+              columns: 2
+              columnSpacing: Style.spacing.sm
+              rowSpacing: Style.spacing.sm
+              Repeater {
+                model: ["Fajr", "Dhuhr", "Asr", "Maghrib", "Isha"]
+                Toggle {
+                  required property string modelData
+                  width: (prayerToggleGrid.width - prayerToggleGrid.columnSpacing) / 2
+                  label: root.service ? root.service.prayerName(modelData) : modelData
+                  checked: root.service ? root.service.prayerEnabled(modelData) : true
+                  foreground: root.foreground
+                  fontFamily: root.uiFont
+                  onClicked: {
+                    var values = {}
+                    values["notify" + modelData] = !checked
+                    root.persistSettings(values)
+                  }
                 }
               }
             }
+            Button { width: parent.width; text: root.tr("testNotification"); bordered: true; focusable: true; foreground: root.foreground; onClicked: root.service.sendNotification("Fajr", true) }
           }
-          Button { text: root.tr("testNotification"); bordered: true; focusable: true; foreground: root.foreground; onClicked: root.service.sendNotification("Fajr", true) }
 
-          PanelSectionHeader { text: root.tr("sound"); foreground: root.foreground; fontFamily: root.uiFont }
-          Toggle {
+          SettingsGroup {
             width: parent.width
-            label: root.tr("enableSound")
-            checked: root.service ? root.service.soundEnabled : false
             foreground: root.foreground
-            fontFamily: root.uiFont
-            onClicked: root.persistSettings({ soundEnabled: !checked })
-          }
-          TextField {
-            width: parent.width
-            text: root.service ? root.service.soundPath : ""
-            placeholderText: root.tr("soundPath")
-            foreground: root.foreground
-            onEditingFinished: root.persistSettings({ soundPath: text.trim() })
-          }
-          Row {
-            width: parent.width
-            spacing: Style.spacing.lg
-            Button { text: root.tr("chooseFile"); bordered: true; focusable: true; foreground: root.foreground; onClicked: soundDialog.open() }
-            Button { text: root.tr("testSound"); bordered: true; focusable: true; foreground: root.foreground; enabled: root.service && root.service.soundPath !== ""; onClicked: root.service.playSound() }
-            Button { text: root.tr("stopSound"); bordered: true; focusable: true; foreground: root.foreground; onClicked: root.service.stopSound() }
-            NumberField {
-              label: root.tr("volume")
-              value: root.service ? root.service.soundVolume : 80
-              from: 0
-              to: 100
-              stepSize: 5
+            PanelSectionHeader { text: root.tr("sound"); foreground: root.foreground; fontFamily: root.uiFont }
+            Toggle {
+              width: parent.width
+              label: root.tr("enableSound")
+              checked: root.service ? root.service.soundEnabled : false
               foreground: root.foreground
               fontFamily: root.uiFont
-              onModified: function(value) { root.persistSettings({ soundVolume: value }) }
+              onClicked: root.persistSettings({ soundEnabled: !checked })
             }
-          }
-          Text {
-            visible: root.service && root.service.soundError !== ""
-            width: parent.width
-            textFormat: Text.PlainText
-            text: root.service ? root.service.soundError : ""
-            color: Color.urgent
-            font.family: root.uiFont
-            font.pixelSize: Style.font.bodySmall
+            TextField {
+              width: parent.width
+              text: root.service ? root.service.soundPath : ""
+              placeholderText: root.tr("soundPath")
+              foreground: root.foreground
+              onEditingFinished: root.persistSettings({ soundPath: text.trim() })
+            }
+            Row {
+              id: soundActions
+              width: parent.width
+              spacing: Style.spacing.sm
+              Button { width: (soundActions.width - soundActions.spacing * 2) / 3; text: root.tr("chooseFile"); bordered: true; focusable: true; foreground: root.foreground; onClicked: soundDialog.open() }
+              Button { width: (soundActions.width - soundActions.spacing * 2) / 3; text: root.tr("testSound"); bordered: true; focusable: true; foreground: root.foreground; enabled: root.service && root.service.soundPath !== ""; onClicked: root.service.playSound() }
+              Button { width: (soundActions.width - soundActions.spacing * 2) / 3; text: root.tr("stopSound"); bordered: true; focusable: true; foreground: root.foreground; onClicked: root.service.stopSound() }
+            }
+            Row {
+              width: parent.width
+              spacing: Style.spacing.md
+              Text {
+                width: parent.width - volumeField.width - parent.spacing
+                anchors.verticalCenter: parent.verticalCenter
+                textFormat: Text.PlainText
+                text: root.tr("volume")
+                color: Qt.darker(root.foreground, 1.4)
+                font.family: root.uiFont
+                font.pixelSize: Style.font.bodySmall
+              }
+              NumberField {
+                id: volumeField
+                anchors.verticalCenter: parent.verticalCenter
+                label: ""
+                value: root.service ? root.service.soundVolume : 80
+                from: 0
+                to: 100
+                stepSize: 5
+                foreground: root.foreground
+                fontFamily: root.uiFont
+                onModified: function(value) { root.persistSettings({ soundVolume: value }) }
+              }
+            }
+            Text {
+              visible: root.service && root.service.soundError !== ""
+              width: parent.width
+              textFormat: Text.PlainText
+              text: root.service ? root.service.soundError : ""
+              color: Color.urgent
+              font.family: root.uiFont
+              font.pixelSize: Style.font.bodySmall
+            }
           }
 
         }

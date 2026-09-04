@@ -419,14 +419,17 @@ Panel {
             fontFamily: root.uiFont
             onClicked: root.persistSettings({ bypassDnd: !checked })
           }
-          Row {
+          Grid {
+            id: prayerToggleGrid
             width: parent.width
-            spacing: Style.spacing.sm
+            columns: 2
+            columnSpacing: Style.spacing.sm
+            rowSpacing: Style.spacing.sm
             Repeater {
               model: ["Fajr", "Dhuhr", "Asr", "Maghrib", "Isha"]
               Toggle {
                 required property string modelData
-                width: (parent.width - parent.spacing * 4) / 5
+                width: (prayerToggleGrid.width - prayerToggleGrid.columnSpacing) / 2
                 label: root.service ? root.service.prayerName(modelData) : modelData
                 checked: root.service ? root.service.prayerEnabled(modelData) : true
                 foreground: root.foreground

@@ -15,10 +15,11 @@ Panel {
 
   readonly property var barIdentity: hostWidget || root
   readonly property bool rtl: service ? service.language === "ar" : false
+  readonly property bool hadithRtl: service ? service.hadithLanguage === "ar" : false
   readonly property color foreground: bar ? bar.barForeground : Color.foreground
   readonly property string baseFont: bar ? bar.fontFamily : Style.font.family
   readonly property string uiFont: rtl && service ? service.arabicUiFont : baseFont
-  readonly property string hadithFont: rtl && service ? service.arabicHadithFont : baseFont
+  readonly property string hadithFont: hadithRtl && service ? service.arabicHadithFont : baseFont
   readonly property var hadith: service ? service.currentHadith : null
 
   function tr(key) { return service ? service.tr(key) : key }
@@ -273,13 +274,13 @@ Panel {
               Text {
                 textFormat: Text.PlainText
                 width: parent.width
-                text: root.hadith ? (root.rtl ? root.hadith.arabic : root.hadith.english) : root.tr("loadingHadith")
+                text: root.hadith ? (root.hadithRtl ? root.hadith.arabic : root.hadith.english) : root.tr("loadingHadith")
                 wrapMode: Text.WordWrap
                 color: root.foreground
                 font.family: root.hadithFont
                 font.pixelSize: Style.font.title
-                lineHeight: root.rtl ? 1.55 : 1.35
-                horizontalAlignment: root.rtl ? Text.AlignRight : Text.AlignLeft
+                lineHeight: root.hadithRtl ? 1.55 : 1.35
+                horizontalAlignment: root.hadithRtl ? Text.AlignRight : Text.AlignLeft
               }
               Row {
                 width: parent.width
@@ -290,8 +291,9 @@ Panel {
                   anchors.verticalCenter: parent.verticalCenter
                   text: root.service ? root.service.localizedReference(root.hadith) : ""
                   color: Qt.darker(root.foreground, 1.35)
-                  font.family: root.uiFont
+                  font.family: root.hadithFont
                   font.pixelSize: Style.font.bodySmall
+                  horizontalAlignment: root.hadithRtl ? Text.AlignRight : Text.AlignLeft
                   elide: Text.ElideRight
                 }
                 Button {
@@ -397,12 +399,21 @@ Panel {
             PanelSectionHeader { text: root.tr("language"); foreground: root.foreground; fontFamily: root.uiFont }
             Dropdown {
               width: parent.width
+              label: root.tr("uiLanguage")
               value: root.service ? root.service.language : "en"
               options: [{ value: "en", label: "English" }, { value: "ar", label: "العربية" }]
               foreground: root.foreground
               fontFamily: root.uiFont
-              showLabel: false
               onChanged: function(value) { root.persistSettings({ language: value }) }
+            }
+            Dropdown {
+              width: parent.width
+              label: root.tr("hadithLanguage")
+              value: root.service ? root.service.hadithLanguage : "en"
+              options: [{ value: "en", label: "English" }, { value: "ar", label: "العربية" }]
+              foreground: root.foreground
+              fontFamily: root.uiFont
+              onChanged: function(value) { root.persistSettings({ hadithLanguage: value }) }
             }
           }
 

@@ -24,6 +24,7 @@ Item {
   }
 
   readonly property string language: String(setting("language", "en")) === "ar" ? "ar" : "en"
+  readonly property string hadithLanguage: String(setting("hadithLanguage", language)) === "ar" ? "ar" : "en"
   readonly property string calendarPath: String(setting("calendarPath", "")).trim()
   readonly property string effectiveCalendarPath: expandPath(calendarPath)
   readonly property bool notificationsEnabled: boolSetting("notificationsEnabled", true)
@@ -104,9 +105,13 @@ Item {
     return Tr.text(name, language)
   }
 
-  function localizedDigits(value) {
-    if (language !== "ar") return String(value)
+  function digitsForLanguage(value, selectedLanguage) {
+    if (selectedLanguage !== "ar") return String(value)
     return String(value).replace(/\d/g, function(digit) { return "٠١٢٣٤٥٦٧٨٩"[digit] })
+  }
+
+  function localizedDigits(value) {
+    return digitsForLanguage(value, language)
   }
 
   function formatTime(time) {
@@ -122,10 +127,11 @@ Item {
 
   function localizedReference(hadith) {
     if (!hadith) return ""
-    var collection = Tr.text(hadith.collection, language)
-    return collection + " " + localizedDigits(hadith.hadithNumber) + " · "
-      + (language === "ar" ? "الكتاب " : "Book ") + localizedDigits(hadith.bookNumber)
-      + " · " + (language === "ar" ? "الحديث " : "Hadith ") + localizedDigits(hadith.inBookHadithNumber)
+    var collection = Tr.text(hadith.collection, hadithLanguage)
+    return collection + " " + digitsForLanguage(hadith.hadithNumber, hadithLanguage) + " · "
+      + (hadithLanguage === "ar" ? "الكتاب " : "Book ") + digitsForLanguage(hadith.bookNumber, hadithLanguage)
+      + " · " + (hadithLanguage === "ar" ? "الحديث " : "Hadith ")
+      + digitsForLanguage(hadith.inBookHadithNumber, hadithLanguage)
   }
 
   function clearCalendar(messageKey) {
@@ -508,6 +514,7 @@ Item {
     function status(): string {
       return JSON.stringify({
         language: root.language,
+        hadithLanguage: root.hadithLanguage,
         calendarPath: root.calendarPath,
         calendarReady: root.calendarReady,
         calendarError: root.calendarError,

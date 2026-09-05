@@ -65,11 +65,17 @@ test("formats prayer times with a 12-hour clock", () => {
   assert.equal(Model.formatTime12Hour("21:34"), "9:34 PM");
 });
 
+test("formats prayer countdowns for the bar", () => {
+  assert.equal(Model.formatCountdown(9030), "02:30:30");
+  assert.equal(Model.formatCountdown(0), "00:00:00");
+});
+
 test("translation dictionaries have complete matching keys", () => {
   assert.deepEqual(Object.keys(Translations.STRINGS.ar).sort(), Object.keys(Translations.STRINGS.en).sort());
   assert.equal(Translations.text("settings", "en"), "Settings");
   assert.equal(Translations.text("settings", "ar"), "الإعدادات");
   assert.equal(Translations.interpolate("notificationBody", "en", { prayer: "Fajr" }), "It is time for Fajr.");
+  assert.equal(Translations.interpolate("countdownToPrayer", "en", { countdown: "02:30:30", prayer: "Fajr" }), "02:30:30 to Fajr");
 });
 
 test("fallback selection does not immediately repeat", () => {

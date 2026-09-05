@@ -8,6 +8,7 @@ Hadith; a reviewed set of 100 bilingual Hadith is bundled for offline use.
 ## Features
 
 - Native Quickshell and Omarchy bar UI
+- Live `HH:MM:SS` countdown to the next prayer in the bar
 - English interface by default with a complete Arabic mode
 - Independent English or Arabic language selection for Hadith content
 - System-local timezone and daylight-saving behavior

@@ -105,6 +105,14 @@ Item {
     return Tr.text(name, language)
   }
 
+  function nextPrayerCountdownLabel() {
+    if (!nextPrayer) return tr("appName")
+    return Tr.interpolate("countdownToPrayer", language, {
+      countdown: countdown,
+      prayer: prayerName(nextPrayer.name)
+    })
+  }
+
   function digitsForLanguage(value, selectedLanguage) {
     if (selectedLanguage !== "ar") return String(value)
     return String(value).replace(/\d/g, function(digit) { return "٠١٢٣٤٥٦٧٨٩"[digit] })

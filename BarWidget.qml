@@ -10,9 +10,8 @@ BarWidget {
   readonly property bool opened: panelLoader.item ? panelLoader.item.opened === true : false
   readonly property bool popoutSwitchClosing: panelLoader.item ? panelLoader.item.popoutSwitchClosing === true : false
   readonly property string label: {
-    if (!dulookService || !dulookService.nextPrayer) return "☾ " + (dulookService ? dulookService.tr("appName") : "Dulook")
-    return "☾ " + dulookService.prayerName(dulookService.nextPrayer.name)
-      + " " + dulookService.formatTime(dulookService.nextPrayer.time)
+    if (!dulookService) return "☾ Dulook"
+    return "☾ " + dulookService.nextPrayerCountdownLabel()
   }
 
   function injectPanel() {

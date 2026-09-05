@@ -559,7 +559,7 @@ Panel {
             Toggle {
               width: parent.width
               label: root.tr("enableSound")
-              checked: root.service ? root.service.soundEnabled : false
+              checked: root.service ? root.service.soundEnabled : true
               foreground: root.foreground
               fontFamily: root.uiFont
               onClicked: root.persistSettings({ soundEnabled: !checked })

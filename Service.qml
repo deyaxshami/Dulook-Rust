@@ -25,15 +25,15 @@ Item {
 
   readonly property string language: String(setting("language", "en")) === "ar" ? "ar" : "en"
   readonly property string hadithLanguage: String(setting("hadithLanguage", language)) === "ar" ? "ar" : "en"
-  readonly property string calendarPath: String(setting("calendarPath", "")).trim()
+  readonly property string calendarPath: String(setting("calendarPath", "data/prayer-times-2026-nordhorn.csv")).trim()
   readonly property string effectiveCalendarPath: expandPath(calendarPath)
   readonly property bool notificationsEnabled: boolSetting("notificationsEnabled", true)
   readonly property bool prayerTimeNotificationsEnabled: boolSetting("prayerTimeNotificationsEnabled", notificationsEnabled)
   readonly property bool prayerRemindersEnabled: boolSetting("prayerRemindersEnabled", notificationsEnabled)
   readonly property bool lastThirdReminderEnabled: boolSetting("lastThirdReminderEnabled", notificationsEnabled)
-  readonly property bool soundEnabled: boolSetting("soundEnabled", false)
+  readonly property bool soundEnabled: boolSetting("soundEnabled", true)
   readonly property bool bypassDnd: boolSetting("bypassDnd", false)
-  readonly property string soundPath: String(setting("soundPath", "")).trim()
+  readonly property string soundPath: String(setting("soundPath", "adans/adan_01.mp3")).trim()
   readonly property string effectiveSoundPath: expandPath(soundPath)
   readonly property int soundVolume: Math.max(0, Math.min(100, Number(setting("soundVolume", 80))))
   readonly property string arabicUiFont: String(setting("arabicUiFont", "Noto Sans Arabic"))
@@ -100,6 +100,8 @@ Item {
     if (path.indexOf("~/") === 0) path = home + path.substring(1)
     else if (path.indexOf("$HOME/") === 0) path = home + path.substring(5)
     else if (path.indexOf("${HOME}/") === 0) path = home + path.substring(7)
+    else if (path !== "" && path.charAt(0) !== "/" && path.indexOf("://") === -1)
+      return expandPath(String(Qt.resolvedUrl(path)))
     return path
   }
 

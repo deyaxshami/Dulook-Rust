@@ -1,7 +1,7 @@
 # Dulook
 
 Dulook is a bilingual prayer-time and Hadith widget for the Omarchy Shell bar.
-Prayer times come only from a CSV file selected by the user and never require
+Prayer times come from a bundled or user-selected CSV file and never require
 network access. Internet access is used only to request Arabic and English
 Hadith; a reviewed set of 100 bilingual Hadith is bundled for offline use.
 
@@ -13,6 +13,7 @@ Hadith; a reviewed set of 100 bilingual Hadith is bundled for offline use.
 - Independent English or Arabic language selection for Hadith content
 - System-local timezone and daylight-saving behavior
 - User-selected CSV with automatic reload on file changes
+- Bundled 2026 Nordhorn prayer calendar and three Adhan recordings
 - Native prayer notifications on every monitor, including a reminder 15 minutes before each prayer
 - A notification when the last third of the night begins
 - Independent prayer-time, 15-minute, last-third, per-prayer, and DND controls
@@ -57,10 +58,11 @@ omarchy plugin update karem.dulook
 
 ## Prayer Calendar
 
-Dulook starts without prayer data. Open its settings and choose a local CSV.
-The file is read directly: it is not uploaded, copied, or cached. If it is
-moved or deleted, prayer times and alerts remain unavailable until a valid
-path is selected.
+Dulook starts with the bundled `data/prayer-times-2026-nordhorn.csv` calendar.
+It covers Nordhorn for 2026 only. Choose a local CSV in Settings when using
+Dulook in another location or year. The selected file is read directly: it is
+not uploaded, copied, or cached. If it is moved or deleted, prayer times and
+alerts remain unavailable until a valid path is selected.
 
 CSV times are interpreted in the computer's current system timezone. Use a
 calendar prepared for the same location and timezone as the computer.
@@ -88,9 +90,10 @@ Notifications are enabled for all five prayers by default and use Omarchy's
 native normal-duration popup. One logical notification is sent and Omarchy
 mirrors it to every monitor. DND is respected unless bypass is enabled.
 
-Adhan audio is disabled by default. Select a local MP3 and enable sound in the
-settings panel. Dulook uses a private `mpv` process, respects the system sink
-and volume, and never stops unrelated media players.
+Adhan audio is enabled by default with `adans/adan_01.mp3`. The installation
+also includes `adan_02.mp3` and `adan_03.mp3`; select either path or another
+local MP3 in Settings. Dulook uses a private `mpv` process, respects the system
+sink and volume, and never stops unrelated media players.
 
 ## Hadith Data
 

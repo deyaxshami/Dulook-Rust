@@ -12,6 +12,7 @@ function loadScript(relativePath) {
 
 const Model = loadScript("../Model.js");
 const Translations = loadScript("../Translations.js");
+const bundledCalendar = readFileSync(new URL("../data/prayer-times-2026-nordhorn.csv", import.meta.url), "utf8");
 
 const englishCsv = `Day,Date,Hijri,Fajr,Sunrise,Dhuhr,Asr,Maghrib,Isha
 Monday,01/06/2026,,03:00 am,,01:15 pm,05:30 pm,10:00 pm,12:10 am
@@ -32,6 +33,27 @@ test("parses Arabic headers and ISO dates", () => {
   const calendar = Model.parseCalendar("التاريخ,الفجر,الظهر,العصر,المغرب,العشاء\n2026-09-03,05:27,13:36,17:11,20:17,21:34");
   assert.equal(calendar.dates["2026-09-03"].Fajr, "05:27");
   assert.equal(calendar.dates["2026-09-03"].Isha, "21:34");
+});
+
+test("bundles a complete 2026 Nordhorn prayer calendar", () => {
+  const calendar = Model.parseCalendar(bundledCalendar);
+  assert.equal(calendar.rowCount, 365);
+  assert.equal(calendar.firstDate, "2026-01-01");
+  assert.equal(calendar.lastDate, "2026-12-31");
+});
+
+test("bundles valid MP3 defaults and references them from the manifest", () => {
+  const manifest = JSON.parse(readFileSync(new URL("../manifest.json", import.meta.url), "utf8"));
+  assert.equal(manifest.barWidget.defaults.calendarPath, "data/prayer-times-2026-nordhorn.csv");
+  assert.equal(manifest.barWidget.defaults.soundEnabled, true);
+  assert.equal(manifest.barWidget.defaults.soundPath, "adans/adan_01.mp3");
+  for (const name of ["adan_01.mp3", "adan_02.mp3", "adan_03.mp3"]) {
+    const audio = readFileSync(new URL(`../adans/${name}`, import.meta.url));
+    const hasId3Header = audio.subarray(0, 3).toString("ascii") === "ID3";
+    const hasMpegFrame = audio[0] === 0xff && (audio[1] & 0xe0) === 0xe0;
+    assert.ok(audio.length > 1000, `${name} is empty`);
+    assert.ok(hasId3Header || hasMpegFrame, `${name} is not an MP3`);
+  }
 });
 
 test("uses tomorrow's actual Fajr after the final prayer", () => {

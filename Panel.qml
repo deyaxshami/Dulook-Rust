@@ -453,12 +453,30 @@ Panel {
             PanelSectionHeader { text: root.tr("notifications"); foreground: root.foreground; fontFamily: root.uiFont }
             Toggle {
               width: parent.width
-              label: root.tr("enableNotifications")
-              description: root.tr("enableNotificationsHint")
-              checked: root.service ? root.service.notificationsEnabled : true
+              label: root.tr("enablePrayerTimeNotifications")
+              description: root.tr("enablePrayerTimeNotificationsHint")
+              checked: root.service ? root.service.prayerTimeNotificationsEnabled : true
               foreground: root.foreground
               fontFamily: root.uiFont
-              onClicked: root.persistSettings({ notificationsEnabled: !checked })
+              onClicked: root.persistSettings({ prayerTimeNotificationsEnabled: !checked })
+            }
+            Toggle {
+              width: parent.width
+              label: root.tr("enablePrayerReminders")
+              description: root.tr("enablePrayerRemindersHint")
+              checked: root.service ? root.service.prayerRemindersEnabled : true
+              foreground: root.foreground
+              fontFamily: root.uiFont
+              onClicked: root.persistSettings({ prayerRemindersEnabled: !checked })
+            }
+            Toggle {
+              width: parent.width
+              label: root.tr("enableLastThirdReminder")
+              description: root.tr("enableLastThirdReminderHint")
+              checked: root.service ? root.service.lastThirdReminderEnabled : true
+              foreground: root.foreground
+              fontFamily: root.uiFont
+              onClicked: root.persistSettings({ lastThirdReminderEnabled: !checked })
             }
             Toggle {
               width: parent.width
@@ -469,8 +487,16 @@ Panel {
               fontFamily: root.uiFont
               onClicked: root.persistSettings({ bypassDnd: !checked })
             }
+            Text {
+              width: parent.width
+              text: root.tr("prayerTimePerPrayer")
+              color: Qt.darker(root.foreground, 1.3)
+              font.family: root.uiFont
+              font.pixelSize: Style.font.bodySmall
+              wrapMode: Text.WordWrap
+            }
             Grid {
-              id: prayerToggleGrid
+              id: prayerNotificationGrid
               width: parent.width
               columns: 2
               columnSpacing: Style.spacing.sm
@@ -479,14 +505,45 @@ Panel {
                 model: ["Fajr", "Dhuhr", "Asr", "Maghrib", "Isha"]
                 Toggle {
                   required property string modelData
-                  width: (prayerToggleGrid.width - prayerToggleGrid.columnSpacing) / 2
+                  width: (prayerNotificationGrid.width - prayerNotificationGrid.columnSpacing) / 2
                   label: root.service ? root.service.prayerName(modelData) : modelData
-                  checked: root.service ? root.service.prayerEnabled(modelData) : true
+                  checked: root.service ? root.service.prayerNotificationEnabled(modelData) : true
                   foreground: root.foreground
                   fontFamily: root.uiFont
                   onClicked: {
                     var values = {}
                     values["notify" + modelData] = !checked
+                    root.persistSettings(values)
+                  }
+                }
+              }
+            }
+            Text {
+              width: parent.width
+              text: root.tr("reminderPerPrayer")
+              color: Qt.darker(root.foreground, 1.3)
+              font.family: root.uiFont
+              font.pixelSize: Style.font.bodySmall
+              wrapMode: Text.WordWrap
+            }
+            Grid {
+              id: prayerReminderGrid
+              width: parent.width
+              columns: 2
+              columnSpacing: Style.spacing.sm
+              rowSpacing: Style.spacing.sm
+              Repeater {
+                model: ["Fajr", "Dhuhr", "Asr", "Maghrib", "Isha"]
+                Toggle {
+                  required property string modelData
+                  width: (prayerReminderGrid.width - prayerReminderGrid.columnSpacing) / 2
+                  label: root.service ? root.service.prayerName(modelData) : modelData
+                  checked: root.service ? root.service.prayerReminderEnabled(modelData) : true
+                  foreground: root.foreground
+                  fontFamily: root.uiFont
+                  onClicked: {
+                    var values = {}
+                    values["remind" + modelData] = !checked
                     root.persistSettings(values)
                   }
                 }

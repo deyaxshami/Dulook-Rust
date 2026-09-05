@@ -240,6 +240,37 @@ function eventsAround(calendar, nowMs) {
   return events
 }
 
+function prayerEventForRow(key, prayers, name) {
+  var events = eventsForRow(key, prayers)
+  for (var i = 0; i < events.length; i++)
+    if (events[i].name === name) return events[i]
+  return null
+}
+
+function lastThirdEventsAround(calendar, nowMs) {
+  if (!calendar || !calendar.dates) return []
+  var today = keyForDate(new Date(nowMs))
+  var events = []
+  for (var offset = -2; offset <= 1; offset++) {
+    var nightDate = shiftedKey(today, offset)
+    var nextDate = shiftedKey(nightDate, 1)
+    var prayers = calendar.dates[nightDate]
+    var nextPrayers = calendar.dates[nextDate]
+    if (!prayers || !nextPrayers) continue
+    var maghrib = prayerEventForRow(nightDate, prayers, "Maghrib")
+    var fajr = prayerEventForRow(nextDate, nextPrayers, "Fajr")
+    if (!maghrib || !fajr || fajr.timestamp <= maghrib.timestamp) continue
+    events.push({
+      key: nightDate + "|last-third",
+      nightDate: nightDate,
+      timestamp: Math.round(maghrib.timestamp + (fajr.timestamp - maghrib.timestamp) * 2 / 3),
+      maghribTimestamp: maghrib.timestamp,
+      fajrTimestamp: fajr.timestamp
+    })
+  }
+  return events
+}
+
 function snapshot(calendar, nowMs) {
   var now = new Date(nowMs)
   var today = keyForDate(now)
@@ -260,16 +291,23 @@ function snapshot(calendar, nowMs) {
   }
 }
 
-function dueEvents(calendar, previousMs, nowMs, graceMs, advanceMs) {
+function eventsDue(events, previousMs, nowMs, graceMs, advanceMs) {
   var lowerBound = Math.max(Number(previousMs), Number(nowMs) - Number(graceMs))
   var advance = Math.max(0, Number(advanceMs) || 0)
-  var events = eventsAround(calendar, nowMs)
   var due = []
   for (var i = 0; i < events.length; i++) {
     var dueAt = events[i].timestamp - advance
     if (dueAt > lowerBound && dueAt <= nowMs) due.push(events[i])
   }
   return due
+}
+
+function dueEvents(calendar, previousMs, nowMs, graceMs, advanceMs) {
+  return eventsDue(eventsAround(calendar, nowMs), previousMs, nowMs, graceMs, advanceMs)
+}
+
+function dueLastThirdEvents(calendar, previousMs, nowMs, graceMs) {
+  return eventsDue(lastThirdEventsAround(calendar, nowMs), previousMs, nowMs, graceMs, 0)
 }
 
 function formatCountdown(seconds) {

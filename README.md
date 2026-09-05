@@ -14,10 +14,24 @@ Hadith; a reviewed set of 100 bilingual Hadith is bundled for offline use.
 - System-local timezone and daylight-saving behavior
 - User-selected CSV with automatic reload on file changes
 - Native prayer notifications on every monitor, including a reminder 15 minutes before each prayer
-- Per-prayer notification controls and optional DND bypass
+- A notification when the last third of the night begins
+- Independent prayer-time, 15-minute, last-third, per-prayer, and DND controls
 - Optional local MP3 playback through `mpv`
 - Separate Arabic UI and Hadith font settings
 - Exactly 100 paired Arabic and English offline Hadith
+
+## Last Third of the Night
+
+Dulook treats the night as the interval from Maghrib to the following day's
+Fajr. It divides that duration into three equal parts and sends the configured
+notification when two-thirds have elapsed:
+
+```text
+last third begins = Maghrib + 2/3 * (next Fajr - Maghrib)
+```
+
+This follows the description in [Sahih al-Bukhari 1145](https://sunnah.com/bukhari:1145)
+and the calculation explained by [IslamWeb](https://www.islamweb.net/en/fatwa/376972/determining-the-last-third-part-of-the-night).
 
 ## Install
 

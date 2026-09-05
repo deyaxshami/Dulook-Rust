@@ -57,6 +57,23 @@ test("returns prayer reminders 15 minutes before each event", () => {
   assert.deepEqual(Array.from(due, event => event.name), ["Dhuhr"]);
 });
 
+test("starts the last third after two thirds of the Maghrib-to-Fajr night", () => {
+  const calendar = Model.parseCalendar(englishCsv);
+  const expected = new Date(2026, 5, 2, 1, 19, 20).getTime();
+  const events = Model.lastThirdEventsAround(calendar, expected);
+  const event = events.find(candidate => candidate.nightDate === "2026-06-01");
+  assert.equal(event.timestamp, expected);
+  assert.equal(event.maghribTimestamp, new Date(2026, 5, 1, 22, 0, 0).getTime());
+  assert.equal(event.fajrTimestamp, new Date(2026, 5, 2, 2, 59, 0).getTime());
+});
+
+test("returns the start of the last third when its notification becomes due", () => {
+  const calendar = Model.parseCalendar(englishCsv);
+  const now = new Date(2026, 5, 2, 1, 19, 20).getTime();
+  const due = Model.dueLastThirdEvents(calendar, now - 2000, now, 120000);
+  assert.deepEqual(Array.from(due, event => event.nightDate), ["2026-06-01"]);
+});
+
 test("rejects missing columns, duplicate dates, and invalid times", () => {
   assert.throws(() => Model.parseCalendar("Date,Fajr\n01/01/2026,05:00"), /Missing column/);
   assert.throws(() => Model.parseCalendar("Date,Fajr,Dhuhr,Asr,Maghrib,Isha\n01/01/2026,05:00,12:00,15:00,18:00,20:00\n01/01/2026,05:00,12:00,15:00,18:00,20:00"), /Duplicate date/);
@@ -83,6 +100,7 @@ test("translation dictionaries have complete matching keys", () => {
   assert.equal(Translations.text("settings", "ar"), "الإعدادات");
   assert.equal(Translations.interpolate("notificationBody", "en", { prayer: "Fajr" }), "It is time for Fajr.");
   assert.equal(Translations.interpolate("prayerReminderBody", "en", { prayer: "Fajr" }), "Fajr begins in 15 minutes.");
+  assert.equal(Translations.text("lastThirdBody", "en"), "The last third of the night has begun.");
   assert.equal(Translations.interpolate("countdownToPrayer", "en", { countdown: "02:30:30", prayer: "Fajr" }), "02:30:30 to Fajr");
 });
 

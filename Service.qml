@@ -28,6 +28,9 @@ Item {
   readonly property string calendarPath: String(setting("calendarPath", "")).trim()
   readonly property string effectiveCalendarPath: expandPath(calendarPath)
   readonly property bool notificationsEnabled: boolSetting("notificationsEnabled", true)
+  readonly property bool prayerTimeNotificationsEnabled: boolSetting("prayerTimeNotificationsEnabled", notificationsEnabled)
+  readonly property bool prayerRemindersEnabled: boolSetting("prayerRemindersEnabled", notificationsEnabled)
+  readonly property bool lastThirdReminderEnabled: boolSetting("lastThirdReminderEnabled", notificationsEnabled)
   readonly property bool soundEnabled: boolSetting("soundEnabled", false)
   readonly property bool bypassDnd: boolSetting("bypassDnd", false)
   readonly property string soundPath: String(setting("soundPath", "")).trim()
@@ -51,6 +54,7 @@ Item {
   property double previousTick: 0
   property string lastAlertKey: ""
   property string lastReminderKey: ""
+  property string lastThirdAlertKey: ""
 
   property var fallbackHadiths: []
   property var fallbackOrder: []
@@ -220,20 +224,26 @@ Item {
       for (var d = 0; d < due.length; d++) triggerPrayer(due[d])
       var reminders = Model.dueEvents(calendar, lower, now, 120000, prayerReminderLeadMs)
       for (var r = 0; r < reminders.length; r++) triggerPrayerReminder(reminders[r])
+      var lastThirdEvents = Model.dueLastThirdEvents(calendar, lower, now, 120000)
+      for (var t = 0; t < lastThirdEvents.length; t++) triggerLastThirdReminder(lastThirdEvents[t])
     }
     previousTick = now
   }
 
-  function prayerEnabled(name) {
+  function prayerNotificationEnabled(name) {
     return boolSetting("notify" + name, true)
+  }
+
+  function prayerReminderEnabled(name) {
+    return boolSetting("remind" + name, prayerNotificationEnabled(name))
   }
 
   function triggerPrayer(event) {
     if (!event || event.key === lastAlertKey) return
     lastAlertKey = event.key
     saveState()
-    if (!prayerEnabled(event.name)) return
-    if (notificationsEnabled) sendNotification(event.name, false)
+    if (!prayerNotificationEnabled(event.name)) return
+    if (prayerTimeNotificationsEnabled) sendNotification(event.name, false)
     if (soundEnabled && (!dnd || bypassDnd)) playSound()
   }
 
@@ -241,7 +251,14 @@ Item {
     if (!event || event.key === lastReminderKey) return
     lastReminderKey = event.key
     saveState()
-    if (notificationsEnabled && prayerEnabled(event.name)) sendReminderNotification(event.name)
+    if (prayerRemindersEnabled && prayerReminderEnabled(event.name)) sendReminderNotification(event.name)
+  }
+
+  function triggerLastThirdReminder(event) {
+    if (!event || event.key === lastThirdAlertKey) return
+    lastThirdAlertKey = event.key
+    saveState()
+    if (lastThirdReminderEnabled) sendLastThirdNotification()
   }
 
   function notificationCommand(title, body) {
@@ -259,6 +276,10 @@ Item {
   function sendReminderNotification(prayer) {
     var body = Tr.interpolate("prayerReminderBody", language, { prayer: prayerName(prayer) })
     Quickshell.execDetached(notificationCommand(tr("prayerReminderTitle"), body))
+  }
+
+  function sendLastThirdNotification() {
+    Quickshell.execDetached(notificationCommand(tr("lastThirdTitle"), tr("lastThirdBody")))
   }
 
   function playSound() {
@@ -412,6 +433,7 @@ Item {
       var parsed = JSON.parse(stateFile.text())
       lastAlertKey = String(parsed.lastAlertKey || "")
       lastReminderKey = String(parsed.lastReminderKey || "")
+      lastThirdAlertKey = String(parsed.lastThirdAlertKey || "")
     } catch (error) {}
   }
 
@@ -419,7 +441,8 @@ Item {
     stateFile.setText(JSON.stringify({
       version: 1,
       lastAlertKey: lastAlertKey,
-      lastReminderKey: lastReminderKey
+      lastReminderKey: lastReminderKey,
+      lastThirdAlertKey: lastThirdAlertKey
     }) + "\n")
   }
 
@@ -550,6 +573,9 @@ Item {
         prayerRows: root.prayerRows,
         nextPrayer: root.nextPrayer,
         countdown: root.countdown,
+        prayerTimeNotificationsEnabled: root.prayerTimeNotificationsEnabled,
+        prayerRemindersEnabled: root.prayerRemindersEnabled,
+        lastThirdReminderEnabled: root.lastThirdReminderEnabled,
         timezone: root.timezoneLabel(),
         hadithSource: root.currentHadith && root.currentHadith.source ? root.currentHadith.source : root.hadithSource,
         hadithCount: root.fallbackHadiths.length,

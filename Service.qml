@@ -35,6 +35,7 @@ Item {
   readonly property int soundVolume: Math.max(0, Math.min(100, Number(setting("soundVolume", 80))))
   readonly property string arabicUiFont: String(setting("arabicUiFont", "Noto Sans Arabic"))
   readonly property string arabicHadithFont: String(setting("arabicHadithFont", "Noto Naskh Arabic"))
+  readonly property int prayerReminderLeadMs: 15 * 60 * 1000
   readonly property var notificationService: shell ? shell.firstPartyServiceFor("omarchy.notifications") : null
   readonly property bool dnd: notificationService ? notificationService.doNotDisturb === true : false
 
@@ -49,6 +50,7 @@ Item {
   property int timezoneOffset: new Date().getTimezoneOffset()
   property double previousTick: 0
   property string lastAlertKey: ""
+  property string lastReminderKey: ""
 
   property var fallbackHadiths: []
   property var fallbackOrder: []
@@ -216,6 +218,8 @@ Item {
       var lower = previousTick > 0 ? previousTick : now - 120000
       var due = Model.dueEvents(calendar, lower, now, 120000)
       for (var d = 0; d < due.length; d++) triggerPrayer(due[d])
+      var reminders = Model.dueEvents(calendar, lower, now, 120000, prayerReminderLeadMs)
+      for (var r = 0; r < reminders.length; r++) triggerPrayerReminder(reminders[r])
     }
     previousTick = now
   }
@@ -233,17 +237,28 @@ Item {
     if (soundEnabled && (!dnd || bypassDnd)) playSound()
   }
 
-  function notificationCommand(prayer, test) {
-    var title = tr("notificationTitle")
-    var body = test ? tr("testNotificationBody")
-      : Tr.interpolate("notificationBody", language, { prayer: prayerName(prayer) })
+  function triggerPrayerReminder(event) {
+    if (!event || event.key === lastReminderKey) return
+    lastReminderKey = event.key
+    saveState()
+    if (notificationsEnabled && prayerEnabled(event.name)) sendReminderNotification(event.name)
+  }
+
+  function notificationCommand(title, body) {
     var command = [omarchyPath + "/bin/omarchy-notification-send"]
     if (!bypassDnd) command = command.concat(["--app-name", "karem.dulook"])
     return command.concat(["-u", "normal", "-t", "8000", "-g", "☾", title, body])
   }
 
   function sendNotification(prayer, test) {
-    Quickshell.execDetached(notificationCommand(prayer || "Fajr", test === true))
+    var body = test === true ? tr("testNotificationBody")
+      : Tr.interpolate("notificationBody", language, { prayer: prayerName(prayer || "Fajr") })
+    Quickshell.execDetached(notificationCommand(tr("notificationTitle"), body))
+  }
+
+  function sendReminderNotification(prayer) {
+    var body = Tr.interpolate("prayerReminderBody", language, { prayer: prayerName(prayer) })
+    Quickshell.execDetached(notificationCommand(tr("prayerReminderTitle"), body))
   }
 
   function playSound() {
@@ -396,11 +411,16 @@ Item {
     try {
       var parsed = JSON.parse(stateFile.text())
       lastAlertKey = String(parsed.lastAlertKey || "")
+      lastReminderKey = String(parsed.lastReminderKey || "")
     } catch (error) {}
   }
 
   function saveState() {
-    stateFile.setText(JSON.stringify({ version: 1, lastAlertKey: lastAlertKey }) + "\n")
+    stateFile.setText(JSON.stringify({
+      version: 1,
+      lastAlertKey: lastAlertKey,
+      lastReminderKey: lastReminderKey
+    }) + "\n")
   }
 
   onCalendarPathChanged: {

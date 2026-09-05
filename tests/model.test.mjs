@@ -50,6 +50,13 @@ test("returns prayer events crossed during a wake grace window", () => {
   assert.deepEqual(Array.from(due, event => event.name), ["Dhuhr"]);
 });
 
+test("returns prayer reminders 15 minutes before each event", () => {
+  const calendar = Model.parseCalendar(englishCsv);
+  const reminderTime = new Date(2026, 5, 1, 13, 0, 0).getTime();
+  const due = Model.dueEvents(calendar, reminderTime - 2000, reminderTime, 120000, 15 * 60 * 1000);
+  assert.deepEqual(Array.from(due, event => event.name), ["Dhuhr"]);
+});
+
 test("rejects missing columns, duplicate dates, and invalid times", () => {
   assert.throws(() => Model.parseCalendar("Date,Fajr\n01/01/2026,05:00"), /Missing column/);
   assert.throws(() => Model.parseCalendar("Date,Fajr,Dhuhr,Asr,Maghrib,Isha\n01/01/2026,05:00,12:00,15:00,18:00,20:00\n01/01/2026,05:00,12:00,15:00,18:00,20:00"), /Duplicate date/);
@@ -75,6 +82,7 @@ test("translation dictionaries have complete matching keys", () => {
   assert.equal(Translations.text("settings", "en"), "Settings");
   assert.equal(Translations.text("settings", "ar"), "الإعدادات");
   assert.equal(Translations.interpolate("notificationBody", "en", { prayer: "Fajr" }), "It is time for Fajr.");
+  assert.equal(Translations.interpolate("prayerReminderBody", "en", { prayer: "Fajr" }), "Fajr begins in 15 minutes.");
   assert.equal(Translations.interpolate("countdownToPrayer", "en", { countdown: "02:30:30", prayer: "Fajr" }), "02:30:30 to Fajr");
 });
 

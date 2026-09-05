@@ -260,12 +260,14 @@ function snapshot(calendar, nowMs) {
   }
 }
 
-function dueEvents(calendar, previousMs, nowMs, graceMs) {
+function dueEvents(calendar, previousMs, nowMs, graceMs, advanceMs) {
   var lowerBound = Math.max(Number(previousMs), Number(nowMs) - Number(graceMs))
+  var advance = Math.max(0, Number(advanceMs) || 0)
   var events = eventsAround(calendar, nowMs)
   var due = []
   for (var i = 0; i < events.length; i++) {
-    if (events[i].timestamp > lowerBound && events[i].timestamp <= nowMs) due.push(events[i])
+    var dueAt = events[i].timestamp - advance
+    if (dueAt > lowerBound && dueAt <= nowMs) due.push(events[i])
   }
   return due
 }

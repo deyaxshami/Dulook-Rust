@@ -13,7 +13,7 @@ Hadith; a reviewed set of 100 bilingual Hadith is bundled for offline use.
 - Independent English or Arabic language selection for Hadith content
 - System-local timezone and daylight-saving behavior
 - User-selected CSV with automatic reload on file changes
-- Native prayer notifications on every monitor
+- Native prayer notifications on every monitor, including a reminder 15 minutes before each prayer
 - Per-prayer notification controls and optional DND bypass
 - Optional local MP3 playback through `mpv`
 - Separate Arabic UI and Hadith font settings

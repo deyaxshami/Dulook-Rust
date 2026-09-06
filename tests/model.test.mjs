@@ -121,6 +121,7 @@ test("translation dictionaries have complete matching keys", () => {
   assert.equal(Translations.text("settings", "en"), "Settings");
   assert.equal(Translations.text("settings", "ar"), "الإعدادات");
   assert.equal(Translations.interpolate("notificationBody", "en", { prayer: "Fajr" }), "It is time for Fajr.");
+  assert.equal(Translations.text("stopAdhanHint", "en"), "Left-click to stop the Adhan.");
   assert.equal(Translations.interpolate("prayerReminderBody", "en", { prayer: "Fajr" }), "Fajr begins in 15 minutes.");
   assert.equal(Translations.text("lastThirdBody", "en"), "The last third of the night has begun.");
   assert.equal(Translations.interpolate("countdownToPrayer", "en", { countdown: "02:30:30", prayer: "Fajr" }), "02:30:30 to Fajr");

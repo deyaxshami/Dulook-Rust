@@ -68,6 +68,7 @@ Item {
   property string soundError: ""
   property string soundErrorKey: ""
   property bool stoppingSound: false
+  property string playingAlertKey: ""
   property string pendingCollection: ""
   property int pendingNumber: 0
   property var pendingArabic: null
@@ -245,8 +246,8 @@ Item {
     lastAlertKey = event.key
     saveState()
     if (!prayerNotificationEnabled(event.name)) return
-    if (prayerTimeNotificationsEnabled) sendNotification(event.name, false)
-    if (soundEnabled && (!dnd || bypassDnd)) playSound()
+    var adhanStarted = soundEnabled && (!dnd || bypassDnd) && playSound(event.key)
+    if (prayerTimeNotificationsEnabled) sendPrayerNotification(event.name, event.key, adhanStarted)
   }
 
   function triggerPrayerReminder(event) {
@@ -263,38 +264,55 @@ Item {
     if (lastThirdReminderEnabled) sendLastThirdNotification()
   }
 
-  function notificationCommand(title, body) {
+  function notificationCommand(title, body, clickArgs) {
     var command = [omarchyPath + "/bin/omarchy-notification-send"]
     if (!bypassDnd) command = command.concat(["--app-name", "karem.dulook"])
-    return command.concat(["-u", "normal", "-t", "8000", "-g", "☾", title, body])
+    command = command.concat(["-u", "normal", "-t", "8000", "-g", "☾", title, body])
+    if (clickArgs && clickArgs.length > 0)
+      command = command.concat(["--exec", omarchyPath + "/bin/omarchy-shell", "-q", "karem.dulook"]).concat(clickArgs)
+    return command
+  }
+
+  function sendPrayerNotification(prayer, eventKey, adhanStarted) {
+    var body = Tr.interpolate("notificationBody", language, { prayer: prayerName(prayer) })
+    if (adhanStarted) body += " " + tr("stopAdhanHint")
+    Quickshell.execDetached(notificationCommand(
+      tr("notificationTitle"), body, adhanStarted ? ["stopPrayerSound", eventKey] : []
+    ))
   }
 
   function sendNotification(prayer, test) {
     var body = test === true ? tr("testNotificationBody")
       : Tr.interpolate("notificationBody", language, { prayer: prayerName(prayer || "Fajr") })
-    Quickshell.execDetached(notificationCommand(tr("notificationTitle"), body))
+    Quickshell.execDetached(notificationCommand(tr("notificationTitle"), body, []))
   }
 
   function sendReminderNotification(prayer) {
     var body = Tr.interpolate("prayerReminderBody", language, { prayer: prayerName(prayer) })
-    Quickshell.execDetached(notificationCommand(tr("prayerReminderTitle"), body))
+    Quickshell.execDetached(notificationCommand(tr("prayerReminderTitle"), body, []))
   }
 
   function sendLastThirdNotification() {
-    Quickshell.execDetached(notificationCommand(tr("lastThirdTitle"), tr("lastThirdBody")))
+    Quickshell.execDetached(notificationCommand(tr("lastThirdTitle"), tr("lastThirdBody"), []))
   }
 
-  function playSound() {
+  function playSound(alertKey) {
     soundError = ""
     soundErrorKey = ""
-    if (effectiveSoundPath === "" || audioProc.running) return
+    if (effectiveSoundPath === "" || audioProc.running) return false
     stoppingSound = false
     audioProc.command = [
       "/usr/bin/mpv", "--no-config", "--no-load-scripts", "--no-video",
       "--no-terminal", "--really-quiet", "--audio-client-name=karem.dulook",
       "--volume=" + soundVolume, "--", effectiveSoundPath
     ]
+    playingAlertKey = String(alertKey || "")
     audioProc.running = true
+    return true
+  }
+
+  function stopPrayerSound(alertKey) {
+    if (String(alertKey) === playingAlertKey) stopSound()
   }
 
   function stopSound() {
@@ -302,6 +320,7 @@ Item {
       stoppingSound = true
       audioProc.running = false
     }
+    playingAlertKey = ""
   }
 
   function appendHadith(item, source) {
@@ -525,6 +544,7 @@ Item {
         root.soundError = root.tr(root.soundErrorKey)
       }
       root.stoppingSound = false
+      root.playingAlertKey = ""
     }
   }
 
@@ -563,6 +583,7 @@ Item {
     function nextHadith(): void { root.nextHadith() }
     function fallbackHadith(): void { root.showFallback() }
     function testNotification(): void { root.sendNotification("Fajr", true) }
+    function stopPrayerSound(alertKey: string): void { root.stopPrayerSound(alertKey) }
     function stopSound(): void { root.stopSound() }
     function status(): string {
       return JSON.stringify({
@@ -578,6 +599,8 @@ Item {
         prayerTimeNotificationsEnabled: root.prayerTimeNotificationsEnabled,
         prayerRemindersEnabled: root.prayerRemindersEnabled,
         lastThirdReminderEnabled: root.lastThirdReminderEnabled,
+        soundEnabled: root.soundEnabled,
+        soundPlaying: audioProc.running,
         timezone: root.timezoneLabel(),
         hadithSource: root.currentHadith && root.currentHadith.source ? root.currentHadith.source : root.hadithSource,
         hadithCount: root.fallbackHadiths.length,

@@ -93,7 +93,9 @@ mirrors it to every monitor. DND is respected unless bypass is enabled.
 Adhan audio is enabled by default with `adans/adan_01.mp3`. The installation
 also includes `adan_02.mp3` and `adan_03.mp3`; select either path or another
 local MP3 in Settings. Dulook uses a private `mpv` process, respects the system
-sink and volume, and never stops unrelated media players.
+sink and volume, and never stops unrelated media players. Left-click a
+prayer-time notification to stop its playing Adhan. Right-click dismisses the
+notification without stopping the audio.
 
 ## Hadith Data
 

@@ -12,8 +12,9 @@ Item {
   property var manifest: null
 
   readonly property var settings: {
-    var config = shell ? shell.shellConfig : null
-    var layout = config && config.bar ? config.bar.layout : null
+    var barConfig = shell ? shell.barConfig : null
+    if (!barConfig && shell && shell.shellConfig) barConfig = shell.shellConfig.bar
+    var layout = barConfig ? barConfig.layout : null
     var sections = ["left", "center", "right"]
     for (var s = 0; layout && s < sections.length; s++) {
       var entries = layout[sections[s]] || []

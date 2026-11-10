@@ -1,9 +1,10 @@
 # Dulook
 
-Dulook is a bilingual prayer-time and Hadith widget for the Omarchy Shell bar.
-Prayer times come from a bundled or user-selected CSV file and never require
-network access. Internet access is used only to request Arabic and English
-Hadith; a reviewed set of 100 bilingual Hadith is bundled for offline use.
+Dulook is a bilingual prayer-time and Hadith widget for the Omarchy Shell bar,
+with a Rust backend behind a native Quickshell UI. Prayer times come from a
+bundled or user-selected CSV file and never require network access. Internet
+access is used only to request Arabic and English Hadith; a reviewed set of
+100 bilingual Hadith is bundled for offline use.
 
 ## Features
 
@@ -17,7 +18,7 @@ Hadith; a reviewed set of 100 bilingual Hadith is bundled for offline use.
 - Native prayer notifications on every monitor, including a reminder 15 minutes before each prayer
 - A notification when the last third of the night begins
 - Independent prayer-time, 15-minute, last-third, per-prayer, and DND controls
-- Optional local MP3 playback through `mpv`
+- Adhan dropdown with three bundled recordings, or your own local MP3, played through `mpv`
 - Separate Arabic UI and Hadith font settings
 - Exactly 100 paired Arabic and English offline Hadith
 
@@ -34,6 +35,11 @@ last third begins = Maghrib + 2/3 * (next Fajr - Maghrib)
 This follows the description in [Sahih al-Bukhari 1145](https://sunnah.com/bukhari:1145)
 and the calculation explained by [IslamWeb](https://www.islamweb.net/en/fatwa/376972/determining-the-last-third-part-of-the-night).
 
+## Requirements
+
+- Omarchy Shell on x86_64 Linux (the committed `bin/dulook` is an x86_64 build)
+- `mpv` for Adhan playback and `curl` for online Hadith, at `/usr/bin`
+
 ## Install
 
 The repository is private. Authenticate Git once through GitHub CLI before
@@ -46,8 +52,10 @@ gh auth setup-git
 Then install the plugin:
 
 ```bash
-omarchy plugin add https://github.com/Karem-Shami/Dulook --enable
+omarchy plugin add https://github.com/deyaxshami/Dulook-Rust --enable
 ```
+
+No build step is needed; the prebuilt backend ships in `bin/dulook`.
 
 The repository root is the plugin root, so Git-managed installations can be
 updated with:
@@ -121,10 +129,12 @@ notifications, Adhan playback, Hadith requests, translations) lives in the
 Rust `dulook` backend under `src/`, which the shell starts as a child process
 and talks to over JSON lines on stdin/stdout. `omarchy plugin add` only clones
 the repository, so the stripped release binary is committed as `bin/dulook`.
-After changing anything under `src/`, rebuild it with:
+After changing anything under `src/`, rebuild the binary (needs a Rust
+toolchain), run the tests, and commit the updated `bin/dulook`:
 
 ```bash
 make
+make test
 ```
 
 See `THIRD_PARTY_NOTICES.md` for provenance and licensing.

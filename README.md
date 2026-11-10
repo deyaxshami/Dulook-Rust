@@ -90,9 +90,10 @@ Notifications are enabled for all five prayers by default and use Omarchy's
 native normal-duration popup. One logical notification is sent and Omarchy
 mirrors it to every monitor. DND is respected unless bypass is enabled.
 
-Adhan audio is enabled by default with `adans/adan_01.mp3`. The installation
-also includes `adan_02.mp3` and `adan_03.mp3`; select either path or another
-local MP3 in Settings. Dulook uses a private `mpv` process, respects the system
+Adhan audio is enabled by default with `adans/adan_01.mp3`. Pick one of the
+bundled recordings (Adhan 1–3, from `adans/`) in the Settings dropdown, or
+choose "Custom file…" to select or type the path of your own local MP3. Dulook
+uses a private `mpv` process, respects the system
 sink and volume, and never stops unrelated media players. Left-click a
 prayer-time notification to stop its playing Adhan. Right-click dismisses the
 notification without stopping the audio.
@@ -107,10 +108,23 @@ records with paired Arabic and English text.
 Regenerate and verify the reviewed fallback data with:
 
 ```bash
-npm run build:hadith
-npm run check:hadith
-npm test
-npm run validate
+cargo run --release --bin dulook-data -- build
+cargo run --release --bin dulook-data -- build --check
+cargo run --release --bin dulook-data -- validate
+cargo test
+```
+
+## Development
+
+The QML files are a thin view. All logic (calendar parsing, scheduling,
+notifications, Adhan playback, Hadith requests, translations) lives in the
+Rust `dulook` backend under `src/`, which the shell starts as a child process
+and talks to over JSON lines on stdin/stdout. `omarchy plugin add` only clones
+the repository, so the stripped release binary is committed as `bin/dulook`.
+After changing anything under `src/`, rebuild it with:
+
+```bash
+make
 ```
 
 See `THIRD_PARTY_NOTICES.md` for provenance and licensing.

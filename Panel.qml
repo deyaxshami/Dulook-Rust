@@ -12,6 +12,7 @@ Panel {
   property var hostWidget: null
   property var service: null
   property bool settingsView: false
+  property bool customSoundSelected: false
 
   readonly property var barIdentity: hostWidget || root
   readonly property bool rtl: service ? service.language === "ar" : false
@@ -21,17 +22,27 @@ Panel {
   readonly property string uiFont: rtl && service ? service.arabicUiFont : baseFont
   readonly property string hadithFont: hadithRtl && service ? service.arabicHadithFont : baseFont
   readonly property var hadith: service ? service.currentHadith : null
+  readonly property bool customSound: customSoundSelected || (service ? service.soundChoice === "custom" : false)
 
   function tr(key) { return service ? service.tr(key) : key }
 
+  // Dropdown assigns `value` imperatively on selection, which drops its binding.
+  function soundChoiceBinding() {
+    return Qt.binding(function() {
+      return root.customSound ? "custom" : (root.service ? root.service.soundChoice : "adans/adan_01.mp3")
+    })
+  }
+
   function open() {
     controller.show()
-    if (service) service.updateClock(false)
+    if (service) service.refreshClock()
     Qt.callLater(function() { if (root.opened) root.setCenterHoverRevealSuppressed(true) })
   }
 
   function close() {
     setCenterHoverRevealSuppressed(false)
+    customSoundSelected = false
+    soundChoiceDropdown.value = soundChoiceBinding()
     controller.hide()
   }
 
@@ -55,6 +66,8 @@ Panel {
     if (hostWidget) hostWidget.settings = entry
     if (bar && bar.shell && typeof bar.shell.updateEntryInline === "function")
       bar.shell.updateEntryInline(moduleName, entry)
+    // The shell hands plugin services the bar config one change late, so push the new entry directly.
+    if (service) service.applySettings(entry)
   }
 
   function pathFromUrl(url) {
@@ -85,6 +98,14 @@ Panel {
     title: root.tr("chooseFile")
     nameFilters: [root.tr("mp3Files") + " (*.mp3)", root.tr("allFiles") + " (*)"]
     onAccepted: root.persistSettings({ soundPath: root.pathFromUrl(selectedFile) })
+  }
+
+  onCustomSoundChanged: soundChoiceDropdown.value = soundChoiceBinding()
+
+  Connections {
+    target: root.service
+    ignoreUnknownSignals: true
+    function onSoundChoiceChanged() { soundChoiceDropdown.value = root.soundChoiceBinding() }
   }
 
   KeyboardPanel {
@@ -175,7 +196,7 @@ Panel {
                 textFormat: Text.PlainText
                 anchors.horizontalCenter: parent.horizontalCenter
                 text: root.service && root.service.nextPrayer
-                  ? root.service.prayerName(root.service.nextPrayer.name) + " · " + root.service.formatTime(root.service.nextPrayer.time)
+                  ? root.service.nextPrayer.label
                   : (root.service && root.service.calendarPath !== "" ? root.tr("noPrayerData") : root.tr("noCalendar"))
                 color: root.foreground
                 font.family: root.uiFont
@@ -194,7 +215,7 @@ Panel {
               Text {
                 textFormat: Text.PlainText
                 anchors.horizontalCenter: parent.horizontalCenter
-                text: root.service ? root.tr("systemTimezone") + " · " + root.service.timezoneLabel() : ""
+                text: root.service ? root.tr("systemTimezone") + " · " + root.service.timezoneLabel : ""
                 color: Qt.darker(root.foreground, 1.5)
                 font.family: root.uiFont
                 font.pixelSize: Style.font.caption
@@ -226,7 +247,7 @@ Panel {
                   Text {
                     textFormat: Text.PlainText
                     anchors.horizontalCenter: parent.horizontalCenter
-                    text: root.service ? root.service.prayerName(modelData.name) : modelData.name
+                    text: modelData.nameLabel
                     color: selectedPrayer ? Color.accent : Qt.darker(root.foreground, 1.35)
                     font.family: root.uiFont
                     font.pixelSize: Style.font.caption
@@ -235,7 +256,7 @@ Panel {
                   Text {
                     textFormat: Text.PlainText
                     anchors.horizontalCenter: parent.horizontalCenter
-                    text: root.service ? root.service.formatTime(modelData.time) : modelData.time
+                    text: modelData.timeLabel
                     color: root.foreground
                     font.family: root.uiFont
                     font.pixelSize: Style.font.bodySmall
@@ -292,7 +313,7 @@ Panel {
                   textFormat: Text.PlainText
                   width: parent.width - previousButton.width - nextButton.width - parent.spacing * 2
                   anchors.verticalCenter: parent.verticalCenter
-                  text: root.service ? root.service.localizedReference(root.hadith) : ""
+                  text: root.hadith ? root.hadith.referenceLabel : ""
                   color: Qt.darker(root.foreground, 1.35)
                   font.family: root.hadithFont
                   font.pixelSize: Style.font.bodySmall
@@ -510,7 +531,7 @@ Panel {
                   required property string modelData
                   width: (prayerNotificationGrid.width - prayerNotificationGrid.columnSpacing) / 2
                   label: root.service ? root.service.prayerName(modelData) : modelData
-                  checked: root.service ? root.service.prayerNotificationEnabled(modelData) : true
+                  checked: root.service ? root.service.notifyEnabled[modelData] !== false : true
                   foreground: root.foreground
                   fontFamily: root.uiFont
                   onClicked: {
@@ -541,7 +562,7 @@ Panel {
                   required property string modelData
                   width: (prayerReminderGrid.width - prayerReminderGrid.columnSpacing) / 2
                   label: root.service ? root.service.prayerName(modelData) : modelData
-                  checked: root.service ? root.service.prayerReminderEnabled(modelData) : true
+                  checked: root.service ? root.service.remindEnabled[modelData] !== false : true
                   foreground: root.foreground
                   fontFamily: root.uiFont
                   onClicked: {
@@ -552,7 +573,7 @@ Panel {
                 }
               }
             }
-            Button { width: parent.width; text: root.tr("testNotification"); bordered: true; focusable: true; foreground: root.foreground; onClicked: root.service.sendNotification("Fajr", true) }
+            Button { width: parent.width; text: root.tr("testNotification"); bordered: true; focusable: true; foreground: root.foreground; onClicked: root.service.testNotification() }
           }
 
           SettingsGroup {
@@ -567,20 +588,39 @@ Panel {
               fontFamily: root.uiFont
               onClicked: root.persistSettings({ soundEnabled: !checked })
             }
+            Dropdown {
+              id: soundChoiceDropdown
+              width: parent.width
+              label: root.tr("adhanChoice")
+              value: root.customSound ? "custom" : (root.service ? root.service.soundChoice : "adans/adan_01.mp3")
+              options: (root.service ? root.service.bundledSounds : []).concat([{ value: "custom", label: root.tr("customSound") }])
+              foreground: root.foreground
+              fontFamily: root.uiFont
+              onChanged: function(value) {
+                if (value === "custom") {
+                  root.customSoundSelected = true
+                  soundDialog.open()
+                } else {
+                  root.customSoundSelected = false
+                  root.persistSettings({ soundPath: value })
+                }
+              }
+            }
             TextField {
+              visible: root.customSound
               width: parent.width
               text: root.service ? root.service.soundPath : ""
               placeholderText: root.tr("soundPath")
               foreground: root.foreground
               onEditingFinished: root.persistSettings({ soundPath: text.trim() })
             }
+            Button { visible: root.customSound; width: parent.width; text: root.tr("chooseFile"); bordered: true; focusable: true; foreground: root.foreground; onClicked: soundDialog.open() }
             Row {
               id: soundActions
               width: parent.width
               spacing: Style.spacing.sm
-              Button { width: (soundActions.width - soundActions.spacing * 2) / 3; text: root.tr("chooseFile"); bordered: true; focusable: true; foreground: root.foreground; onClicked: soundDialog.open() }
-              Button { width: (soundActions.width - soundActions.spacing * 2) / 3; text: root.tr("testSound"); bordered: true; focusable: true; foreground: root.foreground; enabled: root.service && root.service.soundPath !== ""; onClicked: root.service.playSound() }
-              Button { width: (soundActions.width - soundActions.spacing * 2) / 3; text: root.tr("stopSound"); bordered: true; focusable: true; foreground: root.foreground; onClicked: root.service.stopSound() }
+              Button { width: (soundActions.width - soundActions.spacing) / 2; text: root.tr("testSound"); bordered: true; focusable: true; foreground: root.foreground; enabled: root.service && root.service.soundPath !== ""; onClicked: root.service.testSound() }
+              Button { width: (soundActions.width - soundActions.spacing) / 2; text: root.tr("stopSound"); bordered: true; focusable: true; foreground: root.foreground; onClicked: root.service.stopSound() }
             }
             Row {
               width: parent.width

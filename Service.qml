@@ -1,9 +1,11 @@
 import QtQuick
 import Quickshell
 import Quickshell.Io
-import "Model.js" as Model
-import "Translations.js" as Tr
 
+// Thin bridge to the Rust backend (bin/dulook). The backend owns all logic:
+// calendar, alerts, Adhan audio, Hadith, translations, and formatting.
+// It receives commands as JSON lines on stdin and answers with
+// {"type":"state"} and {"type":"tick"} JSON lines on stdout.
 Item {
   id: root
 
@@ -15,7 +17,7 @@ Item {
     var barConfig = shell ? shell.barConfig : null
     if (!barConfig && shell && shell.shellConfig) barConfig = shell.shellConfig.bar
     var layout = barConfig ? barConfig.layout : null
-    var sections = ["left", "center", "right"]
+    var sections = ["left", "centerBegin", "center", "centerEnd", "tray", "right"]
     for (var s = 0; layout && s < sections.length; s++) {
       var entries = layout[sections[s]] || []
       for (var i = 0; i < entries.length; i++)
@@ -24,555 +26,118 @@ Item {
     return ({})
   }
 
-  readonly property string language: String(setting("language", "en")) === "ar" ? "ar" : "en"
-  readonly property string hadithLanguage: String(setting("hadithLanguage", language)) === "ar" ? "ar" : "en"
-  readonly property string calendarPath: String(setting("calendarPath", "data/prayer-times-2026-nordhorn.csv")).trim()
-  readonly property string effectiveCalendarPath: expandPath(calendarPath)
-  readonly property bool notificationsEnabled: boolSetting("notificationsEnabled", true)
-  readonly property bool prayerTimeNotificationsEnabled: boolSetting("prayerTimeNotificationsEnabled", notificationsEnabled)
-  readonly property bool prayerRemindersEnabled: boolSetting("prayerRemindersEnabled", notificationsEnabled)
-  readonly property bool lastThirdReminderEnabled: boolSetting("lastThirdReminderEnabled", notificationsEnabled)
-  readonly property bool soundEnabled: boolSetting("soundEnabled", true)
-  readonly property bool bypassDnd: boolSetting("bypassDnd", false)
-  readonly property string soundPath: String(setting("soundPath", "adans/adan_01.mp3")).trim()
-  readonly property string effectiveSoundPath: expandPath(soundPath)
-  readonly property int soundVolume: Math.max(0, Math.min(100, Number(setting("soundVolume", 80))))
-  readonly property string arabicUiFont: String(setting("arabicUiFont", "Noto Sans Arabic"))
-  readonly property string arabicHadithFont: String(setting("arabicHadithFont", "Noto Naskh Arabic"))
-  readonly property int prayerReminderLeadMs: 15 * 60 * 1000
   readonly property var notificationService: shell ? shell.firstPartyServiceFor("omarchy.notifications") : null
   readonly property bool dnd: notificationService ? notificationService.doNotDisturb === true : false
 
-  property var calendar: null
-  property bool calendarReady: false
-  property string calendarError: ""
-  property string calendarErrorKey: ""
-  property string coverage: ""
-  property var prayerRows: []
-  property var nextPrayer: null
-  property string countdown: "--:--:--"
-  property int timezoneOffset: new Date().getTimezoneOffset()
-  property double previousTick: 0
-  property string lastAlertKey: ""
-  property string lastReminderKey: ""
-  property string lastThirdAlertKey: ""
-
-  property var fallbackHadiths: []
-  property var fallbackOrder: []
-  property int fallbackPosition: 0
-  property var hadithHistory: []
-  property int hadithIndex: -1
-  property int fallbackIndex: -1
-  property bool hadithLoading: false
-  property string hadithSource: "offline"
-  property string hadithError: ""
-  property string soundError: ""
-  property string soundErrorKey: ""
-  property bool stoppingSound: false
-  property string playingAlertKey: ""
-  property string pendingCollection: ""
-  property int pendingNumber: 0
-  property var pendingArabic: null
-  property string pendingArabicRaw: ""
-  property string pendingEnglishRaw: ""
-  readonly property var currentHadith: hadithIndex >= 0 && hadithIndex < hadithHistory.length
-    ? hadithHistory[hadithIndex] : null
-
-  function setting(name, fallback) {
-    var value = settings ? settings[name] : undefined
-    return value === undefined || value === null ? fallback : value
+  readonly property string pluginDir: {
+    var dir = decodeURIComponent(String(Qt.resolvedUrl(".")).replace(/^file:\/\//, ""))
+    return dir.charAt(dir.length - 1) === "/" ? dir : dir + "/"
   }
+  property bool backendReady: false
+  property var backendState: ({})
+  property var backendTick: ({})
 
-  function boolSetting(name, fallback) {
-    var value = setting(name, fallback)
-    if (typeof value === "boolean") return value
-    var normalized = String(value).toLowerCase()
-    if (["true", "1", "yes", "on"].indexOf(normalized) !== -1) return true
-    if (["false", "0", "no", "off"].indexOf(normalized) !== -1) return false
-    return fallback
-  }
+  readonly property string language: backendState.language === "ar" ? "ar" : "en"
+  readonly property string hadithLanguage: backendState.hadithLanguage === "ar" ? "ar" : "en"
+  readonly property string calendarPath: backendState.calendarPath || ""
+  readonly property bool calendarReady: backendState.calendarReady === true
+  readonly property string calendarError: backendState.calendarError || ""
+  readonly property string coverage: backendState.coverage || ""
+  readonly property string soundError: backendState.soundError || ""
+  readonly property bool soundPlaying: backendState.soundPlaying === true
+  readonly property bool soundEnabled: backendState.soundEnabled !== false
+  readonly property string soundPath: backendState.soundPath || ""
+  readonly property int soundVolume: backendState.soundVolume !== undefined ? backendState.soundVolume : 80
+  readonly property var bundledSounds: backendState.bundledSounds || []
+  readonly property string soundChoice: backendState.soundChoice || "adans/adan_01.mp3"
+  readonly property bool bypassDnd: backendState.bypassDnd === true
+  readonly property bool prayerTimeNotificationsEnabled: backendState.prayerTimeNotificationsEnabled !== false
+  readonly property bool prayerRemindersEnabled: backendState.prayerRemindersEnabled !== false
+  readonly property bool lastThirdReminderEnabled: backendState.lastThirdReminderEnabled !== false
+  readonly property string arabicUiFont: backendState.arabicUiFont || "Noto Sans Arabic"
+  readonly property string arabicHadithFont: backendState.arabicHadithFont || "Noto Naskh Arabic"
+  readonly property var notifyEnabled: backendState.notifyEnabled || ({})
+  readonly property var remindEnabled: backendState.remindEnabled || ({})
+  readonly property var currentHadith: backendState.currentHadith || null
+  readonly property int hadithIndex: backendState.hadithIndex !== undefined ? backendState.hadithIndex : -1
+  readonly property bool hadithLoading: backendState.hadithLoading === true
+  readonly property string hadithSource: backendState.hadithSource || "offline"
+  readonly property int fallbackCount: backendState.fallbackCount || 0
 
-  function expandPath(value) {
-    var path = String(value || "").trim()
-    if (path.indexOf("file://") === 0) {
-      path = path.substring(7)
-      try { path = decodeURIComponent(path) } catch (error) {}
-    }
-    var home = String(Quickshell.env("HOME") || "")
-    if (path.indexOf("~/") === 0) path = home + path.substring(1)
-    else if (path.indexOf("$HOME/") === 0) path = home + path.substring(5)
-    else if (path.indexOf("${HOME}/") === 0) path = home + path.substring(7)
-    else if (path !== "" && path.charAt(0) !== "/" && path.indexOf("://") === -1)
-      return expandPath(String(Qt.resolvedUrl(path)))
-    return path
-  }
+  readonly property string countdown: backendTick.countdown || "--:--:--"
+  readonly property string barLabel: backendTick.barLabel || "Dulook"
+  readonly property string timezoneLabel: backendTick.timezoneLabel || ""
+  readonly property var nextPrayer: backendTick.nextPrayer || null
+  readonly property var prayerRows: backendTick.prayerRows || []
 
   function tr(key) {
-    return Tr.text(key, language)
+    var strings = backendState.strings
+    return strings && strings[key] !== undefined ? strings[key] : key
   }
 
-  function prayerName(name) {
-    return Tr.text(name, language)
+  function prayerName(name) { return tr(name) }
+
+  function send(message) {
+    if (backendReady) backend.write(JSON.stringify(message) + "\n")
   }
 
-  function nextPrayerCountdownLabel() {
-    if (!nextPrayer) return tr("appName")
-    return Tr.interpolate("countdownToPrayer", language, {
-      countdown: countdown,
-      prayer: prayerName(nextPrayer.name)
-    })
-  }
+  function sendSettings() { send({ cmd: "settings", settings: settings }) }
+  function applySettings(entry) { send({ cmd: "settings", settings: entry }) }
+  function reloadCalendar() { send({ cmd: "reloadCalendar" }) }
+  function refreshClock() { send({ cmd: "refreshClock" }) }
+  function nextHadith() { send({ cmd: "nextHadith" }) }
+  function previousHadith() { send({ cmd: "previousHadith" }) }
+  function showFallback() { send({ cmd: "showFallback" }) }
+  function requestHadith() { send({ cmd: "requestHadith" }) }
+  function testNotification() { send({ cmd: "testNotification" }) }
+  function testSound() { send({ cmd: "testSound" }) }
+  function stopSound() { send({ cmd: "stopSound" }) }
+  function stopPrayerSound(alertKey) { send({ cmd: "stopPrayerSound", key: String(alertKey) }) }
 
-  function digitsForLanguage(value, selectedLanguage) {
-    if (selectedLanguage !== "ar") return String(value)
-    return String(value).replace(/\d/g, function(digit) { return "٠١٢٣٤٥٦٧٨٩"[digit] })
-  }
-
-  function localizedDigits(value) {
-    return digitsForLanguage(value, language)
-  }
-
-  function formatTime(time) {
-    return localizedDigits(Model.formatTime12Hour(time || "--:--"))
-  }
-
-  function timezoneLabel() {
-    var offset = -new Date().getTimezoneOffset()
-    var sign = offset >= 0 ? "+" : "-"
-    var absolute = Math.abs(offset)
-    return localizedDigits("UTC" + sign + Model.pad2(Math.floor(absolute / 60)) + ":" + Model.pad2(absolute % 60))
-  }
-
-  function localizedReference(hadith) {
-    if (!hadith) return ""
-    var collection = Tr.text(hadith.collection, hadithLanguage)
-    return collection + " " + digitsForLanguage(hadith.hadithNumber, hadithLanguage) + " · "
-      + (hadithLanguage === "ar" ? "الكتاب " : "Book ") + digitsForLanguage(hadith.bookNumber, hadithLanguage)
-      + " · " + (hadithLanguage === "ar" ? "الحديث " : "Hadith ")
-      + digitsForLanguage(hadith.inBookHadithNumber, hadithLanguage)
-  }
-
-  function clearCalendar(messageKey) {
-    calendar = null
-    calendarReady = false
-    calendarErrorKey = messageKey || ""
-    calendarError = calendarErrorKey === "" ? "" : tr(calendarErrorKey)
-    coverage = ""
-    prayerRows = []
-    nextPrayer = null
-    countdown = "--:--:--"
-  }
-
-  function loadCalendar() {
-    if (calendarPath === "") {
-      clearCalendar("noCalendar")
-      return
-    }
+  function consumeBackendLine(line) {
+    var message
     try {
-      var parsed = Model.parseCalendar(calendarFile.text())
-      calendar = parsed
-      calendarReady = true
-      calendarError = ""
-      calendarErrorKey = ""
-      coverage = localizedDigits(parsed.firstDate + " — " + parsed.lastDate + " · " + parsed.rowCount) + " " + tr("rows")
-      previousTick = Date.now()
-      updateClock(false)
+      message = JSON.parse(line)
     } catch (error) {
-      console.warn("Dulook calendar validation failed:", String(error))
-      clearCalendar("invalidCalendar")
-    }
-  }
-
-  function reloadCalendar() {
-    if (calendarPath === "") {
-      clearCalendar("noCalendar")
+      console.warn("Dulook backend:", line)
       return
     }
-    calendarFile.reload()
+    if (message.type === "state") backendState = message
+    else if (message.type === "tick") backendTick = message
   }
 
-  function updateClock(checkAlerts) {
-    var now = Date.now()
-    var currentOffset = new Date(now).getTimezoneOffset()
-    if (!calendarReady || !calendar) {
-      timezoneOffset = currentOffset
-      previousTick = now
-      return
-    }
-
-    if (currentOffset !== timezoneOffset) {
-      timezoneOffset = currentOffset
-      previousTick = now
-      loadCalendar()
-      return
-    }
-
-    var state = Model.snapshot(calendar, now)
-    timezoneOffset = currentOffset
-    nextPrayer = state.next
-    countdown = state.next ? localizedDigits(Model.formatCountdown(state.remainingSeconds)) : "--:--:--"
-    var rows = []
-    var displayDate = state.next ? state.next.prayerDate : state.dateKey
-    var displayPrayers = calendar.dates[displayDate] || state.prayers
-    if (displayPrayers) {
-      for (var i = 0; i < Model.PRAYERS.length; i++) {
-        var name = Model.PRAYERS[i]
-        rows.push({ name: name, time: displayPrayers[name], prayerDate: displayDate })
-      }
-    }
-    prayerRows = rows
-
-    if (checkAlerts) {
-      var lower = previousTick > 0 ? previousTick : now - 120000
-      var due = Model.dueEvents(calendar, lower, now, 120000)
-      for (var d = 0; d < due.length; d++) triggerPrayer(due[d])
-      var reminders = Model.dueEvents(calendar, lower, now, 120000, prayerReminderLeadMs)
-      for (var r = 0; r < reminders.length; r++) triggerPrayerReminder(reminders[r])
-      var lastThirdEvents = Model.dueLastThirdEvents(calendar, lower, now, 120000)
-      for (var t = 0; t < lastThirdEvents.length; t++) triggerLastThirdReminder(lastThirdEvents[t])
-    }
-    previousTick = now
-  }
-
-  function prayerNotificationEnabled(name) {
-    return boolSetting("notify" + name, true)
-  }
-
-  function prayerReminderEnabled(name) {
-    return boolSetting("remind" + name, prayerNotificationEnabled(name))
-  }
-
-  function triggerPrayer(event) {
-    if (!event || event.key === lastAlertKey) return
-    lastAlertKey = event.key
-    saveState()
-    if (!prayerNotificationEnabled(event.name)) return
-    var adhanStarted = soundEnabled && (!dnd || bypassDnd) && playSound(event.key)
-    if (prayerTimeNotificationsEnabled) sendPrayerNotification(event.name, event.key, adhanStarted)
-  }
-
-  function triggerPrayerReminder(event) {
-    if (!event || event.key === lastReminderKey) return
-    lastReminderKey = event.key
-    saveState()
-    if (prayerRemindersEnabled && prayerReminderEnabled(event.name)) sendReminderNotification(event.name)
-  }
-
-  function triggerLastThirdReminder(event) {
-    if (!event || event.key === lastThirdAlertKey) return
-    lastThirdAlertKey = event.key
-    saveState()
-    if (lastThirdReminderEnabled) sendLastThirdNotification()
-  }
-
-  function notificationCommand(title, body, clickArgs) {
-    var command = [omarchyPath + "/bin/omarchy-notification-send"]
-    if (!bypassDnd) command = command.concat(["--app-name", "karem.dulook"])
-    command = command.concat(["-u", "normal", "-t", "8000", "-g", "☾", title, body])
-    if (clickArgs && clickArgs.length > 0)
-      command = command.concat(["--exec", omarchyPath + "/bin/omarchy-shell", "-q", "karem.dulook"]).concat(clickArgs)
-    return command
-  }
-
-  function sendPrayerNotification(prayer, eventKey, adhanStarted) {
-    var body = Tr.interpolate("notificationBody", language, { prayer: prayerName(prayer) })
-    if (adhanStarted) body += " " + tr("stopAdhanHint")
-    Quickshell.execDetached(notificationCommand(
-      tr("notificationTitle"), body, adhanStarted ? ["stopPrayerSound", eventKey] : []
-    ))
-  }
-
-  function sendNotification(prayer, test) {
-    var body = test === true ? tr("testNotificationBody")
-      : Tr.interpolate("notificationBody", language, { prayer: prayerName(prayer || "Fajr") })
-    Quickshell.execDetached(notificationCommand(tr("notificationTitle"), body, []))
-  }
-
-  function sendReminderNotification(prayer) {
-    var body = Tr.interpolate("prayerReminderBody", language, { prayer: prayerName(prayer) })
-    Quickshell.execDetached(notificationCommand(tr("prayerReminderTitle"), body, []))
-  }
-
-  function sendLastThirdNotification() {
-    Quickshell.execDetached(notificationCommand(tr("lastThirdTitle"), tr("lastThirdBody"), []))
-  }
-
-  function playSound(alertKey) {
-    soundError = ""
-    soundErrorKey = ""
-    if (effectiveSoundPath === "" || audioProc.running) return false
-    stoppingSound = false
-    audioProc.command = [
-      "/usr/bin/mpv", "--no-config", "--no-load-scripts", "--no-video",
-      "--no-terminal", "--really-quiet", "--audio-client-name=karem.dulook",
-      "--volume=" + soundVolume, "--", effectiveSoundPath
-    ]
-    playingAlertKey = String(alertKey || "")
-    audioProc.running = true
-    return true
-  }
-
-  function stopPrayerSound(alertKey) {
-    if (String(alertKey) === playingAlertKey) stopSound()
-  }
-
-  function stopSound() {
-    if (audioProc.running) {
-      stoppingSound = true
-      audioProc.running = false
-    }
-    playingAlertKey = ""
-  }
-
-  function appendHadith(item, source) {
-    var stored = {}
-    for (var key in item) stored[key] = item[key]
-    stored.source = source
-    var history = hadithHistory.slice(0, hadithIndex + 1)
-    history.push(stored)
-    if (history.length > 20) history.shift()
-    hadithHistory = history
-    hadithIndex = history.length - 1
-    hadithSource = source
-    hadithError = ""
-  }
-
-  function showFallback() {
-    if (fallbackHadiths.length === 0) return
-    if (fallbackPosition >= fallbackOrder.length) {
-      fallbackOrder = Model.shuffledIndices(fallbackHadiths.length, fallbackIndex)
-      fallbackPosition = 0
-    }
-    fallbackIndex = fallbackOrder[fallbackPosition++]
-    appendHadith(fallbackHadiths[fallbackIndex], "offline")
-  }
-
-  function requestHadith() {
-    if (hadithLoading || arabicHadithProc.running || englishHadithProc.running) return
-    hadithLoading = true
-    hadithError = ""
-    pendingCollection = Math.random() < 0.5 ? "bukhari" : "muslim"
-    pendingNumber = Math.floor(Math.random() * 7563) + 1
-    pendingArabic = null
-    pendingArabicRaw = ""
-    pendingEnglishRaw = ""
-    arabicHadithProc.command = ["/usr/bin/curl", "-fLsS", "--max-time", "10", hadithUrl("ara")]
-    arabicHadithProc.running = true
-  }
-
-  function hadithUrl(prefix) {
-    return "https://cdn.jsdelivr.net/gh/fawazahmed0/hadith-api@df57907be35291c91ad6a6691180e22ca9920784/editions/"
-      + prefix + "-" + pendingCollection + "/" + pendingNumber + ".json"
-  }
-
-  function recordFromResponse(raw) {
-    var parsed = JSON.parse(String(raw || ""))
-    var records = parsed.hadiths || []
-    for (var i = 0; i < records.length; i++)
-      if (String(records[i].text || "").trim() !== "") return records[i]
-    throw new Error("Empty Hadith")
-  }
-
-  function finishArabicRequest() {
-    try {
-      pendingArabic = recordFromResponse(pendingArabicRaw)
-      englishHadithProc.command = ["/usr/bin/curl", "-fLsS", "--max-time", "10", hadithUrl("eng")]
-      englishHadithProc.running = true
-    } catch (error) {
-      failHadith(error)
-    }
-  }
-
-  function finishEnglishRequest() {
-    try {
-      var english = recordFromResponse(pendingEnglishRaw)
-      if (!pendingArabic || String(english.hadithnumber) !== String(pendingArabic.hadithnumber))
-        throw new Error("Hadith pair mismatch")
-      var canonical = String(english.arabicnumber || english.hadithnumber)
-      var variant = /^(\d+)\.(\d+)$/.exec(canonical)
-      if (variant) canonical = variant[1] + String.fromCharCode(96 + Number(variant[2]))
-      var reference = english.reference || {}
-      var item = {
-        id: pendingCollection + "-" + canonical,
-        collection: pendingCollection,
-        hadithNumber: canonical,
-        bookNumber: Number(reference.book || 0),
-        inBookHadithNumber: Number(reference.hadith || 0),
-        arabic: String(pendingArabic.text).trim(),
-        english: String(english.text).trim()
-      }
-      appendHadith(item, "online")
-      hadithCache.setText(JSON.stringify(item))
-      hadithLoading = false
-    } catch (error) {
-      failHadith(error)
-    }
-  }
-
-  function failHadith(error) {
-    hadithLoading = false
-    hadithError = String(error)
-    showFallback()
-    hadithRetry.restart()
-  }
-
-  function nextHadith() {
-    if (hadithIndex < hadithHistory.length - 1) {
-      hadithIndex++
-      hadithSource = currentHadith && currentHadith.source ? currentHadith.source : hadithSource
-      return
-    }
-    requestHadith()
-  }
-
-  function previousHadith() {
-    if (hadithIndex > 0) {
-      hadithIndex--
-      hadithSource = currentHadith && currentHadith.source ? currentHadith.source : hadithSource
-    }
-  }
-
-  function loadFallbackHadiths() {
-    try {
-      var parsed = JSON.parse(fallbackHadithFile.text())
-      fallbackHadiths = parsed.hadiths || []
-      if (!currentHadith) showFallback()
-      requestHadith()
-    } catch (error) {
-      hadithError = String(error)
-    }
-  }
-
-  function loadCachedHadith() {
-    try {
-      var item = JSON.parse(hadithCache.text())
-      if (item && item.arabic && item.english) appendHadith(item, "cached")
-    } catch (error) {}
-  }
-
-  function loadState() {
-    try {
-      var parsed = JSON.parse(stateFile.text())
-      lastAlertKey = String(parsed.lastAlertKey || "")
-      lastReminderKey = String(parsed.lastReminderKey || "")
-      lastThirdAlertKey = String(parsed.lastThirdAlertKey || "")
-    } catch (error) {}
-  }
-
-  function saveState() {
-    stateFile.setText(JSON.stringify({
-      version: 1,
-      lastAlertKey: lastAlertKey,
-      lastReminderKey: lastReminderKey,
-      lastThirdAlertKey: lastThirdAlertKey
-    }) + "\n")
-  }
-
-  onCalendarPathChanged: {
-    clearCalendar(calendarPath === "" ? "noCalendar" : "")
-    if (calendarPath !== "") Qt.callLater(root.reloadCalendar)
-  }
-
-  onLanguageChanged: {
-    if (calendarErrorKey !== "") calendarError = tr(calendarErrorKey)
-    if (soundErrorKey !== "") soundError = tr(soundErrorKey)
-    if (calendarReady && calendar)
-      coverage = localizedDigits(calendar.firstDate + " — " + calendar.lastDate + " · " + calendar.rowCount) + " " + tr("rows")
-  }
-
-  FileView {
-    id: calendarFile
-    path: root.effectiveCalendarPath
-    blockLoading: true
-    watchChanges: true
-    printErrors: false
-    onLoaded: root.loadCalendar()
-    onFileChanged: reload()
-    onLoadFailed: root.clearCalendar("fileUnavailable")
-  }
-
-  FileView {
-    id: fallbackHadithFile
-    path: Qt.resolvedUrl("data/hadith-fallback.json")
-    blockLoading: true
-    printErrors: true
-    onLoaded: root.loadFallbackHadiths()
-  }
-
-  FileView {
-    id: hadithCache
-    path: Quickshell.cachePath("dulook-last-hadith.json")
-    blockLoading: true
-    printErrors: false
-    onLoaded: root.loadCachedHadith()
-  }
-
-  FileView {
-    id: stateFile
-    path: Quickshell.statePath("dulook-state.json")
-    blockLoading: true
-    printErrors: false
-    onLoaded: root.loadState()
-  }
+  onSettingsChanged: sendSettings()
+  onDndChanged: send({ cmd: "dnd", value: dnd })
+  // The shell injects omarchyPath before shell, so the backend starts with the final paths.
+  onShellChanged: if (shell && !backend.running) backend.running = true
 
   Process {
-    id: arabicHadithProc
-    stdout: StdioCollector {
-      waitForEnd: true
-      onStreamFinished: {
-        root.pendingArabicRaw = String(text || "")
-        Qt.callLater(root.finishArabicRequest)
-      }
+    id: backend
+    command: [root.pluginDir + "bin/dulook",
+      "--plugin-dir", root.pluginDir,
+      "--omarchy-path", root.omarchyPath,
+      "--cache-file", Quickshell.cachePath("dulook-last-hadith.json"),
+      "--state-file", Quickshell.statePath("dulook-state.json")]
+    stdinEnabled: true
+    stdout: SplitParser {
+      onRead: function(line) { root.consumeBackendLine(line) }
     }
-  }
-
-  Process {
-    id: englishHadithProc
-    stdout: StdioCollector {
-      waitForEnd: true
-      onStreamFinished: {
-        root.pendingEnglishRaw = String(text || "")
-        Qt.callLater(root.finishEnglishRequest)
-      }
+    onStarted: {
+      root.backendReady = true
+      root.send({ cmd: "dnd", value: root.dnd })
+      root.sendSettings()
     }
-  }
-
-  Process {
-    id: audioProc
-    onExited: function(exitCode) {
-      if (exitCode !== 0 && !root.stoppingSound) {
-        root.soundErrorKey = "soundPlaybackFailed"
-        root.soundError = root.tr(root.soundErrorKey)
-      }
-      root.stoppingSound = false
-      root.playingAlertKey = ""
+    onExited: {
+      root.backendReady = false
+      if (root.shell) backendRetry.restart()
     }
-  }
-
-  Component.onCompleted: {
-    if (calendarPath === "") clearCalendar("noCalendar")
   }
 
   Timer {
+    id: backendRetry
     interval: 1000
-    running: true
-    repeat: true
-    triggeredOnStart: true
-    onTriggered: root.updateClock(true)
-  }
-
-  Timer {
-    interval: 10 * 60 * 1000
-    running: true
-    repeat: true
-    onTriggered: root.requestHadith()
-  }
-
-  Timer {
-    id: hadithRetry
-    interval: 5 * 60 * 1000
     repeat: false
-    onTriggered: root.requestHadith()
+    onTriggered: if (!backend.running) backend.running = true
   }
 
   IpcHandler {
@@ -583,7 +148,7 @@ Item {
     function refresh(): void { root.reloadCalendar(); root.requestHadith() }
     function nextHadith(): void { root.nextHadith() }
     function fallbackHadith(): void { root.showFallback() }
-    function testNotification(): void { root.sendNotification("Fajr", true) }
+    function testNotification(): void { root.testNotification() }
     function stopPrayerSound(alertKey: string): void { root.stopPrayerSound(alertKey) }
     function stopSound(): void { root.stopSound() }
     function status(): string {
@@ -601,10 +166,10 @@ Item {
         prayerRemindersEnabled: root.prayerRemindersEnabled,
         lastThirdReminderEnabled: root.lastThirdReminderEnabled,
         soundEnabled: root.soundEnabled,
-        soundPlaying: audioProc.running,
-        timezone: root.timezoneLabel(),
-        hadithSource: root.currentHadith && root.currentHadith.source ? root.currentHadith.source : root.hadithSource,
-        hadithCount: root.fallbackHadiths.length,
+        soundPlaying: root.soundPlaying,
+        timezone: root.timezoneLabel,
+        hadithSource: root.hadithSource,
+        hadithCount: root.fallbackCount,
         hadithLoading: root.hadithLoading,
         dnd: root.dnd
       })

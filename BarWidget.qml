@@ -11,7 +11,7 @@ BarWidget {
   readonly property bool popoutSwitchClosing: panelLoader.item ? panelLoader.item.popoutSwitchClosing === true : false
   readonly property string label: {
     if (!dulookService) return "☾ Dulook"
-    return "☾ " + dulookService.nextPrayerCountdownLabel()
+    return "☾ " + dulookService.barLabel
   }
 
   function injectPanel() {

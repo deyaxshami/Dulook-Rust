@@ -64,6 +64,19 @@ updated with:
 omarchy plugin update karem.dulook
 ```
 
+### Upgrading from the old Dulook
+
+The old `Karem-Shami/Dulook` plugin uses the same id, `karem.dulook`, so
+`omarchy plugin add` refuses to install over it and `omarchy plugin update`
+keeps pulling the old repository. Point the existing install at this
+repository instead; this keeps your Dulook settings:
+
+```bash
+git -C ~/.config/omarchy/plugins/karem.dulook remote set-url origin https://github.com/deyaxshami/Dulook-Rust
+omarchy plugin update karem.dulook --yes
+omarchy-restart-shell
+```
+
 ## Prayer Calendar
 
 Dulook starts with the bundled `data/prayer-times-2026-nordhorn.csv` calendar.

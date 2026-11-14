@@ -8,7 +8,7 @@ use serde_json::{Map, Value};
 use crate::jsutil::{js_number, js_string, js_trim};
 use crate::locations;
 use crate::model::Prayer;
-use crate::online::{self, OnlineQuery};
+use crate::online::{self, LocationMode, LocationRequest};
 use crate::translations::Lang;
 
 pub const DEFAULT_SOUND_PATH: &str = "adans/adan_04.mp3";
@@ -17,19 +17,9 @@ pub const DEFAULT_SOUND_PATH: &str = "adans/adan_04.mp3";
 pub struct Settings {
     pub language: Lang,
     pub hadith_language: Lang,
-    /// Bundled calendar folder under `data/`, [`locations::ONLINE`], or [`locations::CUSTOM`] for `calendar_path`.
+    /// Bundled calendar folder under `data/`, a finished download (`downloaded/<folder>`),
+    /// or [`locations::CUSTOM`] for `calendar_path`.
     pub location: String,
-    /// ISO 3166-1 alpha-2 code of the online location, upper case.
-    pub location_country: String,
-    pub location_city: String,
-    pub location_zip: String,
-    pub location_street: String,
-    pub location_house_number: String,
-    /// Latitude/longitude chosen from a suggestion or pinned on the map; a suggestion's
-    /// coordinates are ignored when a street is given, since the address is geocoded more precisely.
-    pub location_coordinates: Option<(f64, f64)>,
-    /// `location_coordinates` were pinned on the map: they win over the street address.
-    pub location_pinned: bool,
     pub calendar_path: String,
     pub effective_calendar_path: String,
     pub prayer_time_notifications_enabled: bool,
@@ -72,6 +62,25 @@ fn bool_setting(raw: &Map<String, Value>, name: &str, fallback: bool) -> bool {
     }
 }
 
+/// The download an entry saved with [`locations::LEGACY_ONLINE`] made from its old location
+/// fields, or the default calendar when they were incomplete.
+fn legacy_online_location(raw: &Map<String, Value>) -> String {
+    let field = |name: &str| js_trim(&string_setting(raw, name, "")).to_owned();
+    let request = LocationRequest {
+        mode: LocationMode::from_setting(&field("locationMode")),
+        country: field("locationCountry"),
+        city: field("locationCity"),
+        zip: field("locationZip"),
+        street: field("locationStreet"),
+        house_number: field("locationHouseNumber"),
+        coordinates: online::parse_coordinates(&field("locationLatitude"), &field("locationLongitude")),
+    };
+    match request.query() {
+        Some(query) => format!("{}{}", locations::DOWNLOADED, online::slug(&query)),
+        None => locations::DEFAULT_LOCATION.to_owned(),
+    }
+}
+
 /// Resolves `file://` URLs, `~`/`$HOME` prefixes, and plugin-relative paths.
 pub fn expand_path(value: &str, plugin_dir: &Path, home: &str) -> String {
     let mut path = js_trim(value).to_owned();
@@ -98,18 +107,10 @@ impl Settings {
         let calendar_path = js_trim(&string_setting(raw, "calendarPath", "")).to_owned();
         // Entries saved before bundled locations existed keep their chosen CSV.
         let default_location = if calendar_path.is_empty() { locations::DEFAULT_LOCATION } else { locations::CUSTOM };
-        let location = js_trim(&string_setting(raw, "location", default_location)).to_owned();
-        let coordinate = |name: &str, limit: f64| {
-            let text = js_trim(&string_setting(raw, name, "")).to_owned();
-            let value = if text.is_empty() { f64::NAN } else { js_number(&Value::from(text)) };
-            (value.is_finite() && value.abs() <= limit).then_some(value)
-        };
-        let location_street = js_trim(&string_setting(raw, "locationStreet", "")).to_owned();
-        let pinned = bool_setting(raw, "locationPinned", false);
-        let location_coordinates = coordinate("locationLatitude", 90.0)
-            .zip(coordinate("locationLongitude", 180.0))
-            .filter(|_| pinned || location_street.is_empty());
-        let location_pinned = pinned && location_coordinates.is_some();
+        let mut location = js_trim(&string_setting(raw, "location", default_location)).to_owned();
+        if location == locations::LEGACY_ONLINE {
+            location = legacy_online_location(raw);
+        }
         let sound_path = js_trim(&string_setting(raw, "soundPath", DEFAULT_SOUND_PATH)).to_owned();
         let notifications_enabled = bool_setting(raw, "notificationsEnabled", true);
         let notify = Prayer::ALL.map(|p| bool_setting(raw, &format!("notify{}", p.name()), true));
@@ -122,18 +123,6 @@ impl Settings {
             language,
             hadith_language,
             location,
-            location_country: js_trim(&string_setting(raw, "locationCountry", "")).to_uppercase(),
-            location_city: js_trim(&string_setting(raw, "locationCity", "")).to_owned(),
-            location_zip: js_trim(&string_setting(raw, "locationZip", "")).to_owned(),
-            // A house number only means something on a street.
-            location_house_number: if location_street.is_empty() {
-                String::new()
-            } else {
-                js_trim(&string_setting(raw, "locationHouseNumber", "")).to_owned()
-            },
-            location_street,
-            location_coordinates,
-            location_pinned,
             effective_calendar_path: expand_path(&calendar_path, plugin_dir, home),
             calendar_path,
             prayer_time_notifications_enabled: bool_setting(raw, "prayerTimeNotificationsEnabled", notifications_enabled),
@@ -149,22 +138,5 @@ impl Settings {
             arabic_ui_font: string_setting(raw, "arabicUiFont", "Noto Sans Arabic"),
             arabic_hadith_font: string_setting(raw, "arabicHadithFont", "Noto Naskh Arabic"),
         }
-    }
-
-    pub fn online_query(&self) -> OnlineQuery {
-        OnlineQuery {
-            country: self.location_country.clone(),
-            city: self.location_city.clone(),
-            zip: self.location_zip.clone(),
-            street: self.location_street.clone(),
-            house_number: self.location_house_number.clone(),
-            coordinates: self.location_coordinates,
-            pinned: self.location_pinned,
-        }
-    }
-
-    /// Folder name of the online location, or `None` until country and city are set.
-    pub fn online_slug(&self) -> Option<String> {
-        (!self.location_country.is_empty() && !self.location_city.is_empty()).then(|| online::slug(&self.online_query()))
     }
 }

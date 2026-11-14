@@ -24,9 +24,8 @@ Panel {
   readonly property var hadith: service ? service.currentHadith : null
   readonly property bool customSound: customSoundSelected || (service ? service.soundChoice === "custom" : false)
   readonly property bool customCalendar: service ? service.location === "custom" : false
-  readonly property bool onlineCalendar: service ? service.location === "online" : false
-  // Online location fields edit drafts until "Find & download": saving every keystroke
-  // would start downloads for half-typed places.
+  // Online services only find a place and download its calendar: their fields are drafts
+  // until "Find & download", which installs the calendar and selects it.
   property string draftCountry: ""
   property string draftCity: ""
   property string draftZip: ""
@@ -34,38 +33,138 @@ Panel {
   property string draftHouseNumber: ""
   property string draftLatitude: ""
   property string draftLongitude: ""
+  property string draftName: ""
+  // Downloaded calendar folder the online service is editing; empty for a new calendar.
+  property string editingFolder: ""
+  // Delete asks for a second click.
+  property bool deleteArmed: false
   property string suggestField: "city"
-  // The draft coordinates were pinned on the map: they win over the street address.
-  property bool draftPinned: false
-  property bool mapVisible: false
+  // Chosen service: online-address, online-map, online-coordinates, offline-installed or custom.
+  property string sourceChoice: "offline-installed"
+  readonly property string draftMode: sourceChoice.indexOf("online-") === 0 ? sourceChoice.substring(7) : ""
   // Generation of the last pin lookup copied into the drafts.
   property real appliedPinGeneration: -1
+  // Id of the last install selected; installs finished before the panel loaded are not reapplied.
+  property real appliedInstallId: 0
 
   function tr(key) { return service ? service.tr(key) : key }
 
-  function locationBinding() {
-    return Qt.binding(function() { return root.service ? root.service.location : "online" })
+  function sourceFromService() {
+    return service && service.location === "custom" ? "custom" : "offline-installed"
+  }
+
+  // The installed calendar entry of the current location, or null.
+  function selectedInstalled() {
+    var list = service ? service.installedCalendars : []
+    for (var i = 0; i < list.length; i++)
+      if (list[i].value === service.location) return list[i]
+    return null
+  }
+
+  function sourceOptions() {
+    var options = [
+      { value: "online-address", label: tr("sourceOnlineAddress") },
+      { value: "online-map", label: tr("sourceOnlineMap") },
+      { value: "online-coordinates", label: tr("sourceOnlineCoordinates") }
+    ]
+    if (service && service.installedCalendars.length > 0)
+      options.push({ value: "offline-installed", label: tr("sourceOfflineInstalled") })
+    options.push({ value: "custom", label: tr("customCalendar") })
+    return options
+  }
+
+  // The installed calendar to show: the current one, else nordhorn, else the first.
+  function installedChoice() {
+    var list = service ? service.installedCalendars : []
+    var fallback = list.length > 0 ? list[0].value : "nordhorn"
+    for (var i = 0; i < list.length; i++) {
+      if (list[i].value === service.location) return service.location
+      if (list[i].value === "nordhorn") fallback = "nordhorn"
+    }
+    return fallback
+  }
+
+  function clearLocationDraft() {
+    draftCountry = ""
+    draftCity = ""
+    draftZip = ""
+    draftStreet = ""
+    draftHouseNumber = ""
+    draftLatitude = ""
+    draftLongitude = ""
+    draftName = ""
   }
 
   function resetLocationDraft() {
-    if (!service) return
-    draftCountry = service.locationCountry
-    draftCity = service.locationCity
-    draftZip = service.locationZip
-    draftStreet = service.locationStreet
-    draftHouseNumber = service.locationHouseNumber
-    draftLatitude = service.locationLatitude
-    draftLongitude = service.locationLongitude
-    draftPinned = service.locationPinned
+    sourceChoice = sourceFromService()
+    editingFolder = ""
+    deleteArmed = false
+    clearLocationDraft()
+  }
+
+  function chooseSource(value) {
+    suggestTimer.stop()
+    if (service) service.clearPlaceSuggestions()
+    sourceChoice = value
+    editingFolder = ""
+    deleteArmed = false
+    if (value === "custom") {
+      // Without a file the switch waits for the dialog: cancelling it must not leave an empty custom calendar.
+      if (service && service.calendarPath === "") calendarDialog.open()
+      else persistSettings({ location: "custom" })
+    } else if (value === "offline-installed") {
+      persistSettings({ location: installedChoice() })
+    } else {
+      clearLocationDraft()
+      if (draftMode === "map") Qt.callLater(centerMap)
+    }
+  }
+
+  // Opens the downloaded calendar's online service with its stored place filled in.
+  function editInstalled() {
+    var entry = selectedInstalled()
+    if (!entry || !entry.downloaded) return
+    draftCountry = entry.country
+    draftCity = entry.city
+    draftZip = entry.zip
+    draftStreet = entry.street
+    draftHouseNumber = entry.houseNumber
+    draftLatitude = entry.latitude
+    draftLongitude = entry.longitude
+    draftName = entry.name
+    editingFolder = entry.folder
+    deleteArmed = false
+    sourceChoice = "online-" + entry.mode
+    if (entry.mode === "map") Qt.callLater(centerMap)
+  }
+
+  // Selects another installed calendar first, so the deleted one is never shown as missing.
+  function deleteInstalled() {
+    var entry = selectedInstalled()
+    if (!entry || !entry.downloaded) return
+    var list = service.installedCalendars
+    var fallback = ""
+    for (var i = 0; i < list.length; i++) {
+      if (list[i].value === entry.value) continue
+      if (fallback === "" || list[i].value === "nordhorn") fallback = list[i].value
+    }
+    persistSettings({ location: fallback !== "" ? fallback : "nordhorn" })
+    service.deleteCalendar(entry.folder)
+    deleteArmed = false
+  }
+
+  // Entries saved while online services were a calendar source keep the download the backend
+  // migrated them to; until the backend's first state `service.location` is only a default.
+  function migrateLegacyLocation() {
+    if (service && service.backendState.location !== undefined && settings && settings.location === "online"
+        && service.location !== "online")
+      persistSettings({ location: service.location })
   }
 
   // Typed changes drop coordinates picked from a suggestion and ask for new suggestions.
-  // A pin stays until "Remove pin": typing only corrects the place's name.
   function editLocationDraft() {
-    if (!draftPinned) {
-      draftLatitude = ""
-      draftLongitude = ""
-    }
+    draftLatitude = ""
+    draftLongitude = ""
     suggestFor("city")
   }
 
@@ -84,10 +183,8 @@ Panel {
     if (place.city !== "") draftCity = place.city
     if (place.zip !== "") draftZip = place.zip
     if (draftCountry === "") draftCountry = place.country
-    draftPinned = false
     draftLatitude = String(place.latitude)
     draftLongitude = String(place.longitude)
-    if (mapVisible) centerMap()
     if (!service) return
     service.clearPlaceSuggestions()
     // A picked street lists its house numbers right away.
@@ -99,27 +196,21 @@ Panel {
   function setPin(latitude, longitude) {
     draftLatitude = latitude.toFixed(6)
     draftLongitude = longitude.toFixed(6)
-    draftPinned = true
     suggestTimer.stop()
     if (!service) return
     service.clearPlaceSuggestions()
     service.pinPlace(latitude, longitude)
   }
 
-  function removePin() {
-    draftPinned = false
-    draftLatitude = ""
-    draftLongitude = ""
-  }
-
   function centerMap() {
+    var entry = selectedInstalled()
     if (draftLatitude !== "" && draftLongitude !== "") {
       osmMap.centerLatitude = Number(draftLatitude)
       osmMap.centerLongitude = Number(draftLongitude)
-      osmMap.zoom = draftPinned ? 17 : 13
-    } else if (service && service.shownLatitude !== "" && service.shownLongitude !== "") {
-      osmMap.centerLatitude = Number(service.shownLatitude)
-      osmMap.centerLongitude = Number(service.shownLongitude)
+      osmMap.zoom = 17
+    } else if (entry && entry.downloaded) {
+      osmMap.centerLatitude = Number(entry.latitude)
+      osmMap.centerLongitude = Number(entry.longitude)
       osmMap.zoom = 13
     } else {
       osmMap.centerLatitude = 20
@@ -128,24 +219,31 @@ Panel {
     }
   }
 
+  function validCoordinate(text, limit) {
+    var t = String(text).trim()
+    var v = Number(t)
+    return t !== "" && isFinite(v) && Math.abs(v) <= limit
+  }
+
+  function canSave() {
+    if (draftMode === "address") return draftCountry !== "" && draftCity.trim() !== ""
+    return validCoordinate(draftLatitude, 90) && validCoordinate(draftLongitude, 180)
+  }
+
+  function placeSummary() {
+    return [(draftStreet + " " + draftHouseNumber).trim(), (draftZip + " " + draftCity).trim(), draftCountry]
+      .filter(function(part) { return part !== "" }).join(", ")
+  }
+
+  // The backend applies each service's rules (house number needs a street, a street drops
+  // suggestion coordinates, typed coordinates ignore the address).
   function saveLocationDraft() {
     suggestTimer.stop()
-    var street = draftStreet.trim()
-    // A street is geocoded itself; city-suggestion coordinates would be less precise. Pinned
-    // coordinates are exact and are kept.
-    var keepCoordinates = draftPinned || street === ""
-    persistSettings({
-      location: "online",
-      locationCountry: draftCountry,
-      locationCity: draftCity.trim(),
-      locationZip: draftZip.trim(),
-      locationStreet: street,
-      locationHouseNumber: street !== "" ? draftHouseNumber.trim() : "",
-      locationLatitude: keepCoordinates ? draftLatitude : "",
-      locationLongitude: keepCoordinates ? draftLongitude : "",
-      locationPinned: draftPinned
-    })
-    if (service) service.clearPlaceSuggestions()
+    if (!service) return
+    service.installCalendar({ mode: draftMode, country: draftCountry, city: draftCity, zip: draftZip, street: draftStreet,
+      houseNumber: draftHouseNumber, latitude: draftLatitude, longitude: draftLongitude,
+      name: draftName, replace: editingFolder })
+    service.clearPlaceSuggestions()
   }
 
   // Dropdown assigns `value` imperatively on selection, which drops its binding.
@@ -165,7 +263,7 @@ Panel {
   function close() {
     setCenterHoverRevealSuppressed(false)
     customSoundSelected = false
-    mapVisible = false
+    deleteArmed = false
     soundChoiceDropdown.value = soundChoiceBinding()
     controller.hide()
   }
@@ -184,7 +282,10 @@ Panel {
 
   function persistSettings(values) {
     var entry = { id: moduleName }
-    for (var key in settings) if (key !== "id") entry[key] = settings[key]
+    // Location fields of the old online calendar source are dropped from the entry.
+    var legacy = ["locationCountry", "locationCity", "locationZip", "locationStreet", "locationHouseNumber",
+      "locationLatitude", "locationLongitude", "locationMode"]
+    for (var key in settings) if (key !== "id" && legacy.indexOf(key) === -1) entry[key] = settings[key]
     for (var changed in values) entry[changed] = values[changed]
     settings = entry
     if (hostWidget) hostWidget.settings = entry
@@ -225,24 +326,35 @@ Panel {
   }
 
   onCustomSoundChanged: soundChoiceDropdown.value = soundChoiceBinding()
+  onServiceChanged: {
+    appliedInstallId = service && service.lastInstalled ? service.lastInstalled.id : 0
+    migrateLegacyLocation()
+  }
+  onSettingsChanged: migrateLegacyLocation()
 
   Connections {
     target: root.service
     ignoreUnknownSignals: true
     function onSoundChoiceChanged() { soundChoiceDropdown.value = root.soundChoiceBinding() }
-    function onLocationCountryChanged() { root.resetLocationDraft() }
-    function onLocationCityChanged() { root.resetLocationDraft() }
-    function onLocationZipChanged() { root.resetLocationDraft() }
-    function onLocationStreetChanged() { root.resetLocationDraft() }
-    function onLocationHouseNumberChanged() { root.resetLocationDraft() }
-    function onLocationPinnedChanged() { root.resetLocationDraft() }
+    function onLocationChanged() {
+      root.migrateLegacyLocation()
+      root.resetLocationDraft()
+    }
+    // Selects a finished install once; backendState objects change on every state line.
+    function onLastInstalledChanged() {
+      var installed = root.service.lastInstalled
+      if (!installed || installed.id <= root.appliedInstallId) return
+      root.appliedInstallId = installed.id
+      root.persistSettings({ location: installed.value })
+      root.resetLocationDraft()
+    }
     // Fills the place's fields once per lookup; backendState objects change on every state line.
     function onPinnedPlaceChanged() {
       var result = root.service.pinnedPlace
       if (!result || result.generation <= root.appliedPinGeneration) return
       root.appliedPinGeneration = result.generation
       var place = result.place
-      if (!place || !root.draftPinned) return
+      if (!place || root.draftMode !== "map") return
       if (place.country !== "") root.draftCountry = place.country
       root.draftCity = place.city
       root.draftZip = place.zip
@@ -597,152 +709,272 @@ Panel {
             foreground: root.foreground
             PanelSectionHeader { text: root.tr("calendar"); foreground: root.foreground; fontFamily: root.uiFont }
             Dropdown {
-              id: locationDropdown
+              id: sourceDropdown
               width: parent.width
               label: root.tr("location")
-              value: root.service ? root.service.location : "online"
-              options: [{ value: "online", label: root.tr("onlineLocation") }]
-                .concat(root.service ? root.service.bundledLocations : [])
-                .concat([{ value: "custom", label: root.tr("customCalendar") }])
+              value: root.sourceChoice
+              options: root.sourceOptions()
               foreground: root.foreground
               fontFamily: root.uiFont
               onChanged: function(value) {
-                // Dropdown assigns `value` imperatively before emitting; keep following the backend.
-                locationDropdown.value = root.locationBinding()
+                // Dropdown assigns `value` imperatively before emitting; keep following the choice.
+                sourceDropdown.value = Qt.binding(function() { return root.sourceChoice })
+                root.chooseSource(value)
+              }
+            }
+            Dropdown {
+              id: installedDropdown
+              visible: root.sourceChoice === "offline-installed"
+              width: parent.width
+              label: root.tr("installedCalendar")
+              value: root.service ? root.service.location : "nordhorn"
+              options: root.service ? root.service.installedCalendars : []
+              foreground: root.foreground
+              fontFamily: root.uiFont
+              onChanged: function(value) {
+                installedDropdown.value = Qt.binding(function() { return root.service ? root.service.location : "nordhorn" })
                 root.persistSettings({ location: value })
-                if (value === "custom" && root.service && root.service.calendarPath === "") calendarDialog.open()
-                if (value === "online") root.resetLocationDraft()
               }
             }
             Column {
-              visible: root.onlineCalendar
+              id: installedManage
+              // Bundled calendars are read-only; downloads can be named, edited and deleted.
+              readonly property var entry: {
+                var selected = root.selectedInstalled()
+                return selected && selected.downloaded === true ? selected : null
+              }
+              visible: root.sourceChoice === "offline-installed" && entry !== null
               width: parent.width
               spacing: Style.spacing.sm
-              // Measures the dropdown's search field; the stock header (row height + padding,
-              // minus md margins on both sides) is shorter than the field and clips its text.
-              TextField {
-                id: countrySearchProbe
-                visible: false
-                font.family: root.uiFont
-              }
-              SearchableDropdown {
-                id: countryDropdown
-                width: parent.width
-                label: root.tr("country")
-                value: root.draftCountry
-                options: root.service ? root.service.countries : []
-                foreground: root.foreground
-                fontFamily: root.uiFont
-                // The stock popup caps at about 6 rows; the country list is long.
-                popupMinHeight: Style.spacing.searchablePopupMinHeight * 2
-                popupRowHeight: Math.max(Style.spacing.popupRowHeight,
-                  countrySearchProbe.implicitHeight + 2 * Style.spacing.md - Style.spacing.controlPaddingX)
-                onChanged: function(value) {
-                  countryDropdown.value = Qt.binding(function() { return root.draftCountry })
-                  root.draftCountry = value
-                  root.editLocationDraft()
-                }
-              }
-              TextField {
-                width: parent.width
-                text: root.draftCity
-                placeholderText: root.tr("city")
-                foreground: root.foreground
-                onTextEdited: {
-                  root.draftCity = text
-                  root.editLocationDraft()
-                }
-              }
-              TextField {
-                width: parent.width
-                text: root.draftZip
-                placeholderText: root.tr("zipOptional")
-                foreground: root.foreground
-                onTextEdited: {
-                  root.draftZip = text
-                  root.editLocationDraft()
-                }
-              }
-              TextField {
-                width: parent.width
-                text: root.draftStreet
-                placeholderText: root.tr("streetOptional")
-                foreground: root.foreground
-                onTextEdited: {
-                  root.draftStreet = text
-                  root.suggestFor("street")
-                }
-              }
-              TextField {
-                width: parent.width
-                enabled: root.draftStreet.trim() !== ""
-                text: root.draftHouseNumber
-                placeholderText: root.tr("houseNumberOptional")
-                foreground: root.foreground
-                onTextEdited: {
-                  root.draftHouseNumber = text
-                  root.suggestFor("house")
-                }
-              }
-              Column {
-                id: placeSuggestionList
-                width: parent.width
-                spacing: Style.spacing.sm
-                Repeater {
-                  model: root.service ? root.service.placeSuggestions : []
-                  Button {
-                    required property var modelData
-                    width: placeSuggestionList.width
-                    text: modelData.label
-                    bordered: true
-                    focusable: true
-                    foreground: root.foreground
-                    onClicked: root.pickSuggestion(modelData)
-                  }
-                }
-              }
-              Row {
-                id: mapActions
-                width: parent.width
-                spacing: Style.spacing.sm
-                readonly property int buttons: root.draftPinned ? 2 : 1
-                Button { width: (mapActions.width - (mapActions.buttons - 1) * mapActions.spacing) / mapActions.buttons; text: root.mapVisible ? root.tr("hideMap") : root.tr("pickOnMap"); bordered: true; focusable: true; foreground: root.foreground; onClicked: { if (!root.mapVisible) root.centerMap(); root.mapVisible = !root.mapVisible } }
-                Button { visible: root.draftPinned; width: (mapActions.width - mapActions.spacing) / 2; text: root.tr("removePin"); bordered: true; focusable: true; foreground: root.foreground; onClicked: root.removePin() }
-              }
               Text {
                 width: parent.width
-                visible: root.draftPinned
                 textFormat: Text.PlainText
-                text: root.tr("pinnedAt") + " " + root.draftLatitude + ", " + root.draftLongitude
+                text: installedManage.entry ? root.tr("calendarFolder") + " " + installedManage.entry.folder : ""
                 color: Qt.darker(root.foreground, 1.4)
                 font.family: root.uiFont
                 font.pixelSize: Style.font.bodySmall
                 wrapMode: Text.WordWrap
               }
-              OsmMap {
-                id: osmMap
-                visible: root.mapVisible
+              TextField {
                 width: parent.width
-                height: Style.space(320)
-                service: root.service
+                text: installedManage.entry ? installedManage.entry.name : ""
+                placeholderText: root.tr("calendarName")
                 foreground: root.foreground
-                fontFamily: root.uiFont
-                pinLatitude: root.draftPinned ? Number(root.draftLatitude) : NaN
-                pinLongitude: root.draftPinned ? Number(root.draftLongitude) : NaN
-                onPicked: function(latitude, longitude) { root.setPin(latitude, longitude) }
+                onEditingFinished: {
+                  var entry = installedManage.entry
+                  if (entry && text.trim() !== entry.name) root.service.renameCalendar(entry.folder, text.trim())
+                }
+              }
+              Row {
+                id: installedActions
+                width: parent.width
+                spacing: Style.spacing.sm
+                Button {
+                  width: (installedActions.width - installedActions.spacing) / 2
+                  text: root.tr("editLocation")
+                  bordered: true
+                  focusable: true
+                  foreground: root.foreground
+                  enabled: root.service && !root.service.downloadActive
+                  onClicked: root.editInstalled()
+                }
+                Button {
+                  width: (installedActions.width - installedActions.spacing) / 2
+                  text: root.deleteArmed ? root.tr("confirmDelete") : root.tr("deleteCalendar")
+                  bordered: true
+                  focusable: true
+                  foreground: root.foreground
+                  enabled: root.service && !root.service.downloadActive
+                  onClicked: {
+                    if (root.deleteArmed) root.deleteInstalled()
+                    else root.deleteArmed = true
+                  }
+                }
+              }
+            }
+            Column {
+              visible: root.draftMode !== ""
+              width: parent.width
+              spacing: Style.spacing.sm
+              Column {
+                visible: root.draftMode === "address"
+                width: parent.width
+                spacing: Style.spacing.sm
+                // Measures the dropdown's search field; the stock header (row height + padding,
+                // minus md margins on both sides) is shorter than the field and clips its text.
+                TextField {
+                  id: countrySearchProbe
+                  visible: false
+                  font.family: root.uiFont
+                }
+                SearchableDropdown {
+                  id: countryDropdown
+                  width: parent.width
+                  label: root.tr("country")
+                  value: root.draftCountry
+                  options: root.service ? root.service.countries : []
+                  foreground: root.foreground
+                  fontFamily: root.uiFont
+                  // The stock popup caps at about 6 rows; the country list is long.
+                  popupMinHeight: Style.spacing.searchablePopupMinHeight * 2
+                  popupRowHeight: Math.max(Style.spacing.popupRowHeight,
+                    countrySearchProbe.implicitHeight + 2 * Style.spacing.md - Style.spacing.controlPaddingX)
+                  onChanged: function(value) {
+                    countryDropdown.value = Qt.binding(function() { return root.draftCountry })
+                    root.draftCountry = value
+                    root.editLocationDraft()
+                  }
+                }
+                TextField {
+                  width: parent.width
+                  text: root.draftCity
+                  placeholderText: root.tr("city")
+                  foreground: root.foreground
+                  onTextEdited: {
+                    root.draftCity = text
+                    root.editLocationDraft()
+                  }
+                }
+                TextField {
+                  width: parent.width
+                  text: root.draftZip
+                  placeholderText: root.tr("zipOptional")
+                  foreground: root.foreground
+                  onTextEdited: {
+                    root.draftZip = text
+                    root.editLocationDraft()
+                  }
+                }
+                TextField {
+                  width: parent.width
+                  text: root.draftStreet
+                  placeholderText: root.tr("streetOptional")
+                  foreground: root.foreground
+                  onTextEdited: {
+                    root.draftStreet = text
+                    root.suggestFor("street")
+                  }
+                }
+                TextField {
+                  width: parent.width
+                  enabled: root.draftStreet.trim() !== ""
+                  text: root.draftHouseNumber
+                  placeholderText: root.tr("houseNumberOptional")
+                  foreground: root.foreground
+                  onTextEdited: {
+                    root.draftHouseNumber = text
+                    root.suggestFor("house")
+                  }
+                }
+                Column {
+                  id: placeSuggestionList
+                  width: parent.width
+                  spacing: Style.spacing.sm
+                  Repeater {
+                    model: root.service ? root.service.placeSuggestions : []
+                    Button {
+                      required property var modelData
+                      width: placeSuggestionList.width
+                      text: modelData.label
+                      bordered: true
+                      focusable: true
+                      foreground: root.foreground
+                      onClicked: root.pickSuggestion(modelData)
+                    }
+                  }
+                }
+              }
+              Column {
+                visible: root.draftMode === "map"
+                width: parent.width
+                spacing: Style.spacing.sm
+                Text {
+                  width: parent.width
+                  textFormat: Text.PlainText
+                  text: root.draftLatitude === "" ? root.tr("pinHint")
+                    : root.tr("pinnedAt") + " " + root.draftLatitude + ", " + root.draftLongitude
+                      + (root.placeSummary() !== "" ? "\n" + root.placeSummary() : "")
+                  color: Qt.darker(root.foreground, 1.4)
+                  font.family: root.uiFont
+                  font.pixelSize: Style.font.bodySmall
+                  wrapMode: Text.WordWrap
+                }
+                OsmMap {
+                  id: osmMap
+                  width: parent.width
+                  height: Style.space(320)
+                  service: root.service
+                  foreground: root.foreground
+                  fontFamily: root.uiFont
+                  pinLatitude: root.draftLatitude !== "" ? Number(root.draftLatitude) : NaN
+                  pinLongitude: root.draftLongitude !== "" ? Number(root.draftLongitude) : NaN
+                  onPicked: function(latitude, longitude) { root.setPin(latitude, longitude) }
+                }
+              }
+              Column {
+                visible: root.draftMode === "coordinates"
+                width: parent.width
+                spacing: Style.spacing.sm
+                TextField {
+                  width: parent.width
+                  text: root.draftLatitude
+                  placeholderText: root.tr("latitude")
+                  foreground: root.foreground
+                  onTextEdited: root.draftLatitude = text
+                }
+                TextField {
+                  width: parent.width
+                  text: root.draftLongitude
+                  placeholderText: root.tr("longitude")
+                  foreground: root.foreground
+                  onTextEdited: root.draftLongitude = text
+                }
+              }
+              Text {
+                width: parent.width
+                visible: root.editingFolder !== ""
+                textFormat: Text.PlainText
+                text: root.tr("editingCalendar") + " " + root.editingFolder
+                color: Qt.darker(root.foreground, 1.4)
+                font.family: root.uiFont
+                font.pixelSize: Style.font.bodySmall
+                wrapMode: Text.WordWrap
+              }
+              TextField {
+                width: parent.width
+                text: root.draftName
+                placeholderText: root.tr("calendarName")
+                foreground: root.foreground
+                onTextEdited: root.draftName = text
               }
               Row {
                 id: onlineActions
                 width: parent.width
                 spacing: Style.spacing.sm
-                Button { width: (onlineActions.width - onlineActions.spacing) / 2; text: root.tr("findLocation"); bordered: true; focusable: true; foreground: root.foreground; enabled: root.draftCountry !== "" && root.draftCity.trim() !== ""; onClicked: root.saveLocationDraft() }
-                Button { width: (onlineActions.width - onlineActions.spacing) / 2; text: root.tr("downloadAgain"); bordered: true; focusable: true; foreground: root.foreground; enabled: root.service && root.service.locationCity !== "" && !root.service.downloadActive; onClicked: root.service.downloadCalendar() }
+                Button {
+                  width: root.editingFolder !== "" ? (onlineActions.width - onlineActions.spacing) / 2 : onlineActions.width
+                  text: root.tr("findLocation")
+                  bordered: true
+                  focusable: true
+                  foreground: root.foreground
+                  enabled: root.canSave() && root.service && !root.service.downloadActive
+                  onClicked: root.saveLocationDraft()
+                }
+                Button {
+                  visible: root.editingFolder !== ""
+                  width: (onlineActions.width - onlineActions.spacing) / 2
+                  text: root.tr("cancel")
+                  bordered: true
+                  focusable: true
+                  foreground: root.foreground
+                  onClicked: root.resetLocationDraft()
+                }
               }
               Text {
                 width: parent.width
                 visible: text !== ""
                 textFormat: Text.PlainText
-                text: root.service ? [root.service.onlineLocationLabel, root.service.downloadStatus, root.service.calendarNotice].filter(function(line) { return line !== "" }).join("\n") : ""
+                text: root.service ? root.service.downloadStatus : ""
                 color: root.service && root.service.downloadStatus !== "" && !root.service.downloadActive ? Color.urgent : Qt.darker(root.foreground, 1.4)
                 font.family: root.uiFont
                 font.pixelSize: Style.font.bodySmall
@@ -750,16 +982,19 @@ Panel {
               }
             }
             TextField {
-              visible: root.customCalendar
+              visible: root.sourceChoice === "custom"
               width: parent.width
               text: root.service ? root.service.calendarPath : ""
               placeholderText: root.tr("calendarPath")
               foreground: root.foreground
-              onEditingFinished: root.persistSettings({ calendarPath: text.trim() })
+              onEditingFinished: {
+                var path = text.trim()
+                root.persistSettings(path !== "" ? { location: "custom", calendarPath: path } : { calendarPath: "" })
+              }
             }
             Row {
               id: calendarActions
-              visible: root.customCalendar
+              visible: root.sourceChoice === "custom"
               width: parent.width
               spacing: Style.spacing.sm
               Button { width: (calendarActions.width - calendarActions.spacing * 2) / 3; text: root.tr("chooseFile"); bordered: true; focusable: true; foreground: root.foreground; onClicked: calendarDialog.open() }

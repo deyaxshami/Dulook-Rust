@@ -67,11 +67,95 @@ pub struct OnlineQuery {
     pub zip: String,
     pub street: String,
     pub house_number: String,
-    /// Latitude/longitude picked from a suggestion or pinned on the map; skips geocoding.
+    /// Latitude/longitude picked from a suggestion, pinned on the map, or typed; skips geocoding.
     pub coordinates: Option<(f64, f64)>,
-    /// The coordinates were pinned on the map: they win over geocoding the street and name
-    /// the folder.
+    /// Exact coordinates (map pin or typed): they win over geocoding and name the folder.
     pub pinned: bool,
+}
+
+/// Online location service.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum LocationMode {
+    #[default]
+    Address,
+    Map,
+    Coordinates,
+}
+
+impl LocationMode {
+    pub fn from_setting(value: &str) -> LocationMode {
+        match value {
+            "map" => LocationMode::Map,
+            "coordinates" => LocationMode::Coordinates,
+            _ => LocationMode::Address,
+        }
+    }
+
+    pub fn code(self) -> &'static str {
+        match self {
+            LocationMode::Address => "address",
+            LocationMode::Map => "map",
+            LocationMode::Coordinates => "coordinates",
+        }
+    }
+
+    /// Service that found a downloaded location, read back from its folder name: pinned
+    /// coordinates end the name, and typed coordinates have no country or city.
+    pub fn infer(slug: &str, location: &OnlineLocation) -> LocationMode {
+        if !slug.ends_with(&format!("{:.6}_{:.6}", location.latitude, location.longitude)) {
+            LocationMode::Address
+        } else if location.country.is_empty() && location.city.is_empty() {
+            LocationMode::Coordinates
+        } else {
+            LocationMode::Map
+        }
+    }
+}
+
+/// Typed latitude/longitude, or `None` unless both are numbers in range.
+pub fn parse_coordinates(latitude: &str, longitude: &str) -> Option<(f64, f64)> {
+    let parse = |text: &str, limit: f64| text.trim().parse::<f64>().ok().filter(|v| v.is_finite() && v.abs() <= limit);
+    parse(latitude, 90.0).zip(parse(longitude, 180.0))
+}
+
+/// A place found by an online service, before it is downloaded.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct LocationRequest {
+    pub mode: LocationMode,
+    pub country: String,
+    pub city: String,
+    pub zip: String,
+    pub street: String,
+    pub house_number: String,
+    /// From a suggestion (address mode), the map pin, or typed coordinates.
+    pub coordinates: Option<(f64, f64)>,
+}
+
+impl LocationRequest {
+    /// The download query, or `None` until the service has what it needs.
+    pub fn query(&self) -> Option<OnlineQuery> {
+        if self.mode == LocationMode::Coordinates {
+            // Only the two numbers: address fields belong to the other services.
+            return self.coordinates.map(|_| OnlineQuery { coordinates: self.coordinates, pinned: true, ..OnlineQuery::default() });
+        }
+        let street = self.street.trim().to_owned();
+        let query = OnlineQuery {
+            country: self.country.trim().to_uppercase(),
+            city: self.city.trim().to_owned(),
+            zip: self.zip.trim().to_owned(),
+            // A house number only means something on a street.
+            house_number: if street.is_empty() { String::new() } else { self.house_number.trim().to_owned() },
+            // A street is geocoded more precisely than a suggestion's coordinates.
+            coordinates: self.coordinates.filter(|_| self.mode != LocationMode::Address || street.is_empty()),
+            street,
+            pinned: self.mode == LocationMode::Map,
+        };
+        let ready = match self.mode {
+            LocationMode::Address => !query.country.is_empty() && !query.city.is_empty(),
+            LocationMode::Map | LocationMode::Coordinates => query.coordinates.is_some(),
+        };
+        ready.then_some(query)
+    }
 }
 
 /// A downloaded location; stored as `location.json` next to its CSV files.
@@ -88,6 +172,9 @@ pub struct OnlineLocation {
     pub latitude: f64,
     pub longitude: f64,
     pub timezone: String,
+    /// Friendly name the user gave the calendar.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub name: String,
 }
 
 /// A suggestion for the location fields: a city, a ZIP code, a street, or a house on a street.
@@ -155,10 +242,11 @@ pub fn calendars_root(data_dir: &Path) -> PathBuf {
 }
 
 /// Folder name of a location, `[Country]_[ZIP]_[City]_[Street]_[HouseNumber]` with the
-/// optional parts left out when empty: `DE_48527_Nordhorn`, `DE_48529_Nordhorn_Hauptstraße_1`,
-/// `EG_سوهاج`. A location pinned on the map is `[Country]_[ZIP]_[City]_[lat]_[lon]` with
-/// 6 decimals instead: `DE_48529_Nordhorn_52.433010_7.069130`. Letters keep their case; other
-/// characters inside a part become `-`.
+/// optional parts left out when empty: `DE_48527_Nordhorn`, `DE_48529_Nordhorn_Hauptstrasse_1`,
+/// `EG_swhaj`. A location pinned on the map is `[Country]_[ZIP]_[City]_[lat]_[lon]` with
+/// 6 decimals instead: `DE_48529_Nordhorn_52.433010_7.069130`, and typed coordinates alone are
+/// just `52.433010_7.069130`. Names are spelled in ASCII ([`ascii`]); letters keep their case and
+/// other characters inside a part become `-`.
 pub fn slug(query: &OnlineQuery) -> String {
     let country = query.country.trim().to_uppercase();
     let pin = query.coordinates.filter(|_| query.pinned);
@@ -170,7 +258,8 @@ pub fn slug(query: &OnlineQuery) -> String {
     let mut parts: Vec<String> = named
         .iter()
         .map(|part| {
-            let mapped: String = part.trim().chars().map(|c| if c.is_alphanumeric() { c } else { '-' }).collect();
+            let mapped: String =
+                ascii(part.trim()).chars().map(|c| if c.is_ascii_alphanumeric() { c } else { '-' }).collect();
             mapped.split('-').filter(|word| !word.is_empty()).collect::<Vec<_>>().join("-")
         })
         .filter(|part| !part.is_empty())
@@ -181,6 +270,54 @@ pub fn slug(query: &OnlineQuery) -> String {
     parts.join("_")
 }
 
+/// Latin spelling of a name: Arabic letter by letter (`القاهرة` → `alqahra`), anything else
+/// through `deunicode` (`Straße` → `Strasse`, `Москва` → `Moskva`). Unknown characters are dropped.
+fn ascii(name: &str) -> String {
+    let mut out = String::with_capacity(name.len());
+    for c in name.chars() {
+        match arabic_letter(c) {
+            Some(latin) => out.push_str(latin),
+            None => out.push_str(deunicode::deunicode_char(c).unwrap_or("")),
+        }
+    }
+    out
+}
+
+/// Common Arabic transliteration; `ء`, tatweel and the harakat are silent.
+fn arabic_letter(c: char) -> Option<&'static str> {
+    Some(match c {
+        'ا' | 'أ' | 'آ' | 'ى' | 'ة' | 'ع' => "a",
+        'إ' => "i",
+        'ب' => "b",
+        'ت' => "t",
+        'ث' => "th",
+        'ج' => "j",
+        'ح' | 'ه' => "h",
+        'خ' => "kh",
+        'د' => "d",
+        'ذ' => "dh",
+        'ر' => "r",
+        'ز' => "z",
+        'س' | 'ص' => "s",
+        'ش' => "sh",
+        'ض' => "d",
+        'ط' => "t",
+        'ظ' => "z",
+        'غ' => "gh",
+        'ف' => "f",
+        'ق' => "q",
+        'ك' => "k",
+        'ل' => "l",
+        'م' => "m",
+        'ن' => "n",
+        'و' | 'ؤ' => "w",
+        'ي' | 'ئ' => "y",
+        'ء' | '\u{0640}' | '\u{064B}'..='\u{0652}' => "",
+        '٠'..='٩' => ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9"][c as usize - '٠' as usize],
+        _ => return None,
+    })
+}
+
 /// One year of a location's calendar: `<root>/<slug>/<slug>_<year>.csv`.
 pub fn calendar_file(root: &Path, slug: &str, year: i32) -> PathBuf {
     root.join(slug).join(format!("{slug}_{year}.csv"))
@@ -188,6 +325,34 @@ pub fn calendar_file(root: &Path, slug: &str, year: i32) -> PathBuf {
 
 pub fn read_location(dir: &Path) -> Option<OnlineLocation> {
     serde_json::from_str(&fs::read_to_string(dir.join(LOCATION_FILE)).ok()?).ok()
+}
+
+pub fn write_location(dir: &Path, location: &OnlineLocation) -> Result<(), String> {
+    let text = serde_json::to_string_pretty(location).map_err(|e| e.to_string())?;
+    let path = dir.join(LOCATION_FILE);
+    try_write_atomic(&path, &(text + "\n")).map_err(|e| format!("{}: {e}", path.display()))
+}
+
+/// Finished downloads under `root` (folders with a valid `location.json`), sorted by folder name.
+pub fn downloaded_locations(root: &Path) -> Vec<(String, OnlineLocation)> {
+    let Ok(entries) = fs::read_dir(root) else { return Vec::new() };
+    let mut found: Vec<(String, OnlineLocation)> = entries
+        .filter_map(|entry| entry.ok())
+        .filter(|entry| entry.file_type().is_ok_and(|t| t.is_dir()))
+        .filter_map(|entry| Some((entry.file_name().into_string().ok()?, read_location(&entry.path())?)))
+        .collect();
+    found.sort_by(|a, b| a.0.cmp(&b.0));
+    found
+}
+
+/// `root/<folder>` when `folder` is a finished download directly under `root`; never a path
+/// outside it, whatever the name.
+pub fn installed_folder(root: &Path, folder: &str) -> Option<PathBuf> {
+    if folder.is_empty() || folder == "." || folder == ".." || folder.contains(['/', '\0']) {
+        return None;
+    }
+    let dir = root.join(folder);
+    read_location(&dir).map(|_| dir)
 }
 
 /// Great-circle distance between two latitude/longitude pairs.
@@ -657,6 +822,9 @@ fn dms(value: f64) -> [String; 3] {
     [seconds / 3600, seconds % 3600 / 60, seconds % 60].map(|part| part.to_string())
 }
 
+/// `app/save_location` needs a known method id; `form/checkform` then applies [`CALC_SETTINGS`].
+const FALLBACK_CALC_ID: &str = "1";
+
 fn open_session(location: &OnlineLocation) -> Result<Session, String> {
     let session = Session { jar: TempJar::new()? };
     session.request("form", &[], true)?;
@@ -669,17 +837,23 @@ fn open_session(location: &OnlineLocation) -> Result<Session, String> {
         .ok()
         .and_then(|reply| reply["results"][0]["elevation"].as_f64())
         .map_or_else(|| "0".to_owned(), |meters| format!("{}", meters.round() as i64));
-    let country = session.json(&format!("app/get_country/{}", location.country), &[]).ok();
+    // The form requires a city and a country; typed coordinates have neither, so they stand in.
+    let coordinates = format!("{latitude}, {longitude}");
+    let country =
+        (!location.country.is_empty()).then(|| session.json(&format!("app/get_country/{}", location.country), &[]).ok()).flatten();
     let field = |key: &str| country.as_ref().and_then(|reply| reply[key].as_str()).map(str::to_owned);
-    let country_name = field("name").unwrap_or_else(|| location.country.clone());
-    let calc_id = field("CalcMethodId").unwrap_or_default();
+    let country_name = field("name").unwrap_or_else(|| {
+        if location.country.is_empty() { coordinates.clone() } else { location.country.clone() }
+    });
+    let calc_id = field("CalcMethodId").filter(|id| !id.is_empty()).unwrap_or_else(|| FALLBACK_CALC_ID.to_owned());
+    let city = if location.city.is_empty() { &coordinates } else { &location.city };
 
     let [lon_dd, lon_mm, lon_ss] = dms(location.longitude);
     let [lat_dd, lat_mm, lat_ss] = dms(location.latitude);
     session.submit(
         "app/save_location",
         &[
-            ("City", &location.city),
+            ("City", city),
             ("Country", &country_name),
             ("TimeZone", &location.timezone),
             ("Altitude", &elevation),
@@ -700,7 +874,7 @@ fn open_session(location: &OnlineLocation) -> Result<Session, String> {
     Ok(session)
 }
 
-/// Downloads `years` into `dir` as `<slug>_<year>.csv` and writes `location.json`.
+/// Downloads `years` into `dir` as `<slug>_<year>.csv` and writes `location.json` named `name`.
 /// `known` reuses a stored location's coordinates and time zone instead of geocoding.
 pub fn download(
     query: &OnlineQuery,
@@ -708,9 +882,10 @@ pub fn download(
     years: &[i32],
     dir: &Path,
     arabic: bool,
+    name: &str,
     progress: impl Fn(usize, usize),
 ) -> Result<OnlineLocation, DownloadError> {
-    let location = match known {
+    let mut location = match known {
         Some(location) => location,
         None => {
             let (latitude, longitude) = geocode(query, arabic)?;
@@ -723,6 +898,7 @@ pub fn download(
                 latitude,
                 longitude,
                 timezone: system_timezone().ok_or(DownloadError::Timezone)?,
+                name: String::new(),
             }
         }
     };
@@ -738,8 +914,7 @@ pub fn download(
         try_write_atomic(&path, &csv).map_err(|e| DownloadError::Network(format!("{}: {e}", path.display())))?;
         progress(index + 1, years.len());
     }
-    let text = serde_json::to_string_pretty(&location).map_err(|e| DownloadError::Network(e.to_string()))?;
-    let path = dir.join(LOCATION_FILE);
-    try_write_atomic(&path, &(text + "\n")).map_err(|e| DownloadError::Network(format!("{}: {e}", path.display())))?;
+    location.name = name.trim().to_owned();
+    write_location(dir, &location).map_err(DownloadError::Network)?;
     Ok(location)
 }

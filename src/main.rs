@@ -86,7 +86,7 @@ fn main() -> ExitCode {
     let (mut last_state, mut last_tick) = (String::new(), String::new());
 
     loop {
-        let deadline = [next_tick, next_hadith, service.hadith_retry_at, service.download_retry_at].into_iter().flatten().min();
+        let deadline = [next_tick, next_hadith, service.hadith_retry_at].into_iter().flatten().min();
         let event = match deadline {
             Some(deadline) => receiver.recv_timeout(deadline.saturating_duration_since(Instant::now())),
             None => receiver.recv().map_err(|_| RecvTimeoutError::Disconnected),
@@ -129,10 +129,6 @@ fn main() -> ExitCode {
         if service.hadith_retry_at.is_some_and(|retry| now >= retry) {
             service.hadith_retry_at = None;
             service.request_hadith();
-        }
-        if service.download_retry_at.is_some_and(|retry| now >= retry) {
-            service.download_retry_at = None;
-            service.ensure_online_calendar(false);
         }
 
         if service.initialized()

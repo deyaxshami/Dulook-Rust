@@ -56,7 +56,40 @@ pub enum Command {
         #[serde(default)]
         tiles: Vec<String>,
     },
-    DownloadCalendar,
+    /// Downloads the place an online service found; `replace` is the folder being edited
+    /// (empty for a new calendar).
+    #[serde(rename_all = "camelCase")]
+    InstallCalendar {
+        #[serde(default)]
+        mode: String,
+        #[serde(default)]
+        country: String,
+        #[serde(default)]
+        city: String,
+        #[serde(default)]
+        zip: String,
+        #[serde(default)]
+        street: String,
+        #[serde(default)]
+        house_number: String,
+        #[serde(default)]
+        latitude: String,
+        #[serde(default)]
+        longitude: String,
+        #[serde(default)]
+        name: String,
+        #[serde(default)]
+        replace: String,
+    },
+    /// Gives a downloaded calendar a friendly name (empty clears it).
+    RenameCalendar {
+        folder: String,
+        #[serde(default)]
+        name: String,
+    },
+    DeleteCalendar {
+        folder: String,
+    },
 }
 
 pub fn parse_command(line: &str) -> Result<Command, String> {

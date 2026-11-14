@@ -58,12 +58,6 @@ omarchy plugin update deyaxshami.dulook
 omarchy-restart-shell
 ```
 
-Updating from a build that bundled the Nordhorn calendar keeps your settings,
-but that bundled calendar is gone. Open Dulook's settings, set **Location** to
-**Online (country / city)**, pick a country, type a city or use **Pick on map**,
-and press **Find & download**. Downloaded calendars live in
-`~/.local/share/dulook/calendars/` on each computer and are not synced.
-
 ### Upgrading from the old Dulook
 
 The old `Karem-Shami/Dulook` plugin and earlier builds of this repository use
@@ -81,39 +75,73 @@ omarchy-restart-shell
 
 ## Prayer Calendar
 
-Choose a location in Settings → Prayer calendar. **Online (country / city)** is
-the default. Dulook loads the location's calendar for the current year,
-together with the neighbouring years so prayers around New Year are scheduled,
-and switches files automatically when the year changes. Folders under `data/`
-(`data/<location>/prayer-times-<year>-<location>.csv`) also appear as
-locations; none are bundled at the moment.
+Choose where prayer times come from in Settings → Prayer calendar → **Location**:
 
-Choose **Custom CSV…** to use any local calendar instead. The selected file is
-read directly: it is not uploaded, copied, or cached. If it is moved or
-deleted, prayer times and alerts remain unavailable until a valid path is
-selected. Settings saved before locations existed keep their custom CSV.
+| Source | Uses |
+| --- | --- |
+| **Online / Address** | Finds a place by country, city, optional ZIP code, street and house number, and installs its calendar |
+| **Online / Map pin** | Finds a place by a pin dropped on an OpenStreetMap map, and installs its calendar |
+| **Online / Coordinates** | Finds a place by typed latitude and longitude, and installs its calendar |
+| **Offline / Installed Calendars** | A bundled calendar or an installed download; works without internet |
+| **Offline / Custom CSV…** | Any local calendar file |
+
+New installations start on **Offline / Installed Calendars** with Nordhorn. Dulook
+loads the location's calendar for the current year, together with the
+neighbouring years so prayers around New Year are scheduled, and switches files
+automatically when the year changes.
+
+**Offline / Installed Calendars** lists the bundled calendars, then every
+calendar installed by an online source. A downloaded calendar is read as it is:
+nothing is downloaded while it is selected, so it stops at the last downloaded
+year.
+
+A selected download shows its folder and three controls; bundled calendars are
+read-only:
+
+- **Calendar name**: an optional friendly name. The list then shows
+  `<name> · <folder>`, for example `Home · DE_48527_Nordhorn`.
+- **Edit location**: opens the online source that found it, with its address,
+  pin or coordinates filled in. **Find & download** replaces the calendar,
+  keeps its name, and removes the old folder if the folder name changed.
+- **Delete**: removes the folder after a second click and selects another
+  installed calendar.
+
+Bundled calendars cover 2026–2037 for 3p Services, Alexandria, Cairo,
+Nordhorn, Qalyub, Ricklingen, Sohag and Veldhausen. They live in
+`data/<location>/prayer-times-<year>-<location>.csv`.
+
+**Offline / Custom CSV…** reads the selected file directly: it is not uploaded,
+copied, or cached. If it is moved or deleted, prayer times and alerts remain
+unavailable until a valid path is selected. Settings saved before locations
+existed keep their custom CSV.
 
 ### Online location
 
-Choose **Online (country / city)**, pick a country, and type a city, plus an
-optional ZIP code, street and house number. Suggestions for the field you are
-typing in come from [Photon](https://photon.komoot.io) (OpenStreetMap). Choosing
-a city also fixes the coordinates. Choosing a street lists house numbers on it.
-House-number suggestions only cover houses OpenStreetMap knows near the street,
-so any number can still be typed. **Find & download**
-resolves the place to latitude/longitude and downloads the current year plus the
-next 10 years from [salatcalendar.com](https://www.salatcalendar.com). It uses an
+The online sources only find a place and install its calendar: **Find &
+download** resolves the place to latitude/longitude, downloads the current year
+plus the next 10 years from [salatcalendar.com](https://www.salatcalendar.com),
+and then switches to **Offline / Installed Calendars** with the new calendar
+selected. An optional **Calendar name** is stored with it. Downloads use an
 anonymous session whose cookie jar is a private temporary file, deleted
 afterwards; no account or browser cookies are used.
 
-**Pick on map** opens an [OpenStreetMap](https://www.openstreetmap.org/copyright)
-map in the panel: drag to move, scroll or use +/− to zoom, and click to drop a
-pin. The pin's exact coordinates are used for the calendar, and the country,
-city, ZIP code, street and house number at that point are filled in from
-Photon. **Remove pin** goes back to the typed address. Map tiles are downloaded
-with Dulook's User-Agent and cached for a week in `$XDG_CACHE_HOME/dulook/tiles/`
-(default `~/.cache/dulook/tiles/`), as the
+**Online / Address**: pick a country and type a city, plus an optional ZIP code,
+street and house number. Suggestions for the field you are typing in come from
+[Photon](https://photon.komoot.io) (OpenStreetMap). Choosing a city also fixes
+the coordinates. Choosing a street lists house numbers on it. House-number
+suggestions only cover houses OpenStreetMap knows near the street, so any number
+can still be typed.
+
+**Online / Map pin** shows an [OpenStreetMap](https://www.openstreetmap.org/copyright)
+map: drag to move, scroll or use +/− to zoom, and click to drop a pin. The pin's
+exact coordinates are used for the calendar, and the country, city, ZIP code,
+street and house number at that point are filled in from Photon. Map tiles are
+downloaded with Dulook's User-Agent and cached for a week in
+`$XDG_CACHE_HOME/dulook/tiles/` (default `~/.cache/dulook/tiles/`), as the
 [OSM tile policy](https://operations.osmfoundation.org/policies/tiles/) asks.
+
+**Online / Coordinates** takes only a latitude and a longitude in decimal
+degrees, for example `52.43301` and `7.06913`. No place name is looked up.
 
 Every download uses the same calculation settings:
 
@@ -128,27 +156,29 @@ Each location gets its own folder in `$XDG_DATA_HOME/dulook/calendars/`
 (default `~/.local/share/dulook/calendars/`), named
 `[Country]_[ZIP]_[City]_[Street]_[HouseNumber]`, with one
 `<folder>_<year>.csv` per year. Optional parts that are empty are left out, for
-example `DE_48527_Nordhorn/DE_48527_Nordhorn_2027.csv` or
-`EG_سوهاج/EG_سوهاج_2027.csv`. A `location.json` describes the place.
+example `DE_48527_Nordhorn/DE_48527_Nordhorn_2027.csv`. Folder names use ASCII
+only: `ß` becomes `ss`, accents are dropped, and Arabic and other scripts are
+spelled in Latin letters, so `EG` + `سوهاج` is `EG_swhaj`. A `location.json`
+describes the place with its original spelling and the calendar's name.
 
-A pinned location is named `[Country]_[ZIP]_[City]_[Latitude]_[Longitude]`
-instead, with 6 decimals and without street and house number, for example
-`DE_48529_Nordhorn_52.433010_7.069130`.
+A map pin is named `[Country]_[ZIP]_[City]_[Latitude]_[Longitude]` instead,
+with 6 decimals and without street and house number, for example
+`DE_48529_Nordhorn_52.433010_7.069130`. Typed coordinates are named by the
+numbers alone, for example `52.433010_7.069130`.
 
 The optional street and house number make the coordinates more precise. If
 Photon cannot find that street, Dulook uses the ZIP code or the city instead. A
-house number is only used together with a street. A pin wins over both.
+house number is only used together with a street.
 
-**When Dulook downloads**
+**When Dulook downloads** (only on **Find & download**)
 - A new country, city, ZIP code, street or house number gets a new folder and its own 11 years (this year and the next 10).
-- Switching back to a location that already has a folder reuses its files; changing only the ZIP code (or street/house number) counts as a new location.
-- A folder whose current year is missing gets only its missing years, for example after the last downloaded year ends.
-- When the chosen coordinates move more than 5 km from the stored ones.
-- On **Download again**.
+- A place that already has a complete folder is selected right away; changing only the ZIP code (or street/house number) counts as a new place.
+- A folder missing some of those years gets only the missing ones, for example after the last downloaded year ends.
+- When the chosen coordinates move more than 5 km from the stored ones, all 11 years are downloaded again.
 
 **When something fails**
-- If the place cannot be found or the download fails, Dulook keeps showing the last location that worked and retries after 30 minutes.
-- Nothing is detected automatically; the location only changes when you change it.
+- If the place cannot be found or the download fails, the message stays under **Find & download** and the selected calendar does not change. Nothing is retried automatically.
+- Settings saved while online sources were a calendar source of their own select their downloaded folder once.
 
 ### Adding a bundled location
 

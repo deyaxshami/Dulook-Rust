@@ -39,24 +39,15 @@ Item {
 
   readonly property string language: backendState.language === "ar" ? "ar" : "en"
   readonly property string hadithLanguage: backendState.hadithLanguage === "ar" ? "ar" : "en"
-  readonly property string location: backendState.location || "online"
-  readonly property var bundledLocations: backendState.bundledLocations || []
-  readonly property string locationCountry: backendState.locationCountry || ""
-  readonly property string locationCity: backendState.locationCity || ""
-  readonly property string locationZip: backendState.locationZip || ""
-  readonly property string locationStreet: backendState.locationStreet || ""
-  readonly property string locationHouseNumber: backendState.locationHouseNumber || ""
-  readonly property string locationLatitude: backendState.locationLatitude || ""
-  readonly property string locationLongitude: backendState.locationLongitude || ""
-  readonly property string onlineLocationLabel: backendState.onlineLocationLabel || ""
-  readonly property string calendarNotice: backendState.calendarNotice || ""
+  readonly property string location: backendState.location || "nordhorn"
+  // Bundled locations (`{ value, label, downloaded: false }`), then finished downloads with
+  // `value: "downloaded/<folder>"`, `folder`, `name`, `mode`, and the stored place fields.
+  readonly property var installedCalendars: backendState.installedCalendars || []
   readonly property bool downloadActive: backendState.downloadActive === true
   readonly property string downloadStatus: backendState.downloadStatus || ""
+  // `{ id, value }` of the latest finished install; the panel selects `value`.
+  readonly property var lastInstalled: backendState.lastInstalled || null
   readonly property var placeSuggestions: backendState.placeSuggestions || []
-  readonly property bool locationPinned: backendState.locationPinned === true
-  // Coordinates of the shown online calendar; the map centers on them.
-  readonly property string shownLatitude: backendState.shownLatitude || ""
-  readonly property string shownLongitude: backendState.shownLongitude || ""
   // `{ generation, place }` of the latest map pin lookup; `place` is null when nothing is there.
   readonly property var pinnedPlace: backendState.pinnedPlace || null
   readonly property string mapTileDir: backendState.mapTileDir || ""
@@ -127,7 +118,9 @@ Item {
   function clearPlaceSuggestions() { send({ cmd: "clearPlaceSuggestions" }) }
   function pinPlace(latitude, longitude) { send({ cmd: "pinPlace", latitude: Number(latitude), longitude: Number(longitude) }) }
   function requestMapTiles(keys) { send({ cmd: "mapTiles", tiles: keys }) }
-  function downloadCalendar() { send({ cmd: "downloadCalendar" }) }
+  function installCalendar(request) { send(Object.assign({ cmd: "installCalendar" }, request)) }
+  function renameCalendar(folder, name) { send({ cmd: "renameCalendar", folder: String(folder), name: String(name) }) }
+  function deleteCalendar(folder) { send({ cmd: "deleteCalendar", folder: String(folder) }) }
 
   function consumeBackendLine(line) {
     var message
@@ -204,13 +197,6 @@ Item {
         language: root.language,
         hadithLanguage: root.hadithLanguage,
         location: root.location,
-        locationCountry: root.locationCountry,
-        locationCity: root.locationCity,
-        locationZip: root.locationZip,
-        locationStreet: root.locationStreet,
-        locationHouseNumber: root.locationHouseNumber,
-        onlineLocationLabel: root.onlineLocationLabel,
-        calendarNotice: root.calendarNotice,
         downloadStatus: root.downloadStatus,
         calendarPath: root.calendarPath,
         calendarReady: root.calendarReady,

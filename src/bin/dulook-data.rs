@@ -78,7 +78,7 @@ fn calendar(args: &[&str]) -> Result<ExitCode, String> {
     let slug = online::slug(&query);
     let dir = out.unwrap_or_else(|| root().join("data").join(&slug));
     let years: Vec<i32> = (from..from + count).collect();
-    let location = online::download(&query, None, &years, &dir, false, |done, total| {
+    let location = online::download(&query, None, &years, &dir, false, "", |done, total| {
         let file = dir.join(format!("{slug}_{}.csv", years[done - 1]));
         eprintln!("{done}/{total} {}", file.display());
     })

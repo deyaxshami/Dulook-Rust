@@ -50,12 +50,11 @@ fn parses_arabic_headers_and_iso_dates() {
 }
 
 #[test]
-fn manifest_lists_online_bundled_and_custom_locations_with_complete_years() {
+fn manifest_lists_bundled_and_custom_locations_with_complete_years() {
     let manifest: serde_json::Value = serde_json::from_str(include_str!("../manifest.json")).unwrap();
     let schema = manifest["barWidget"]["schema"].as_array().unwrap();
     let options = schema.iter().find(|entry| entry["key"] == "location").unwrap()["options"].clone();
-    let mut expected = vec![locations::ONLINE.to_owned()];
-    expected.extend(locations::bundled_locations(plugin_dir()));
+    let mut expected = locations::bundled_locations(plugin_dir());
     expected.push(locations::CUSTOM.to_owned());
     assert_eq!(options, serde_json::json!(expected));
 

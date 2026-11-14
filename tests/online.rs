@@ -1,6 +1,6 @@
 use chrono::{Days, NaiveDate};
 use dulook::model;
-use dulook::online::{self, OnlineQuery, PlaceSuggestion};
+use dulook::online::{self, LocationMode, LocationRequest, OnlineLocation, OnlineQuery, PlaceSuggestion};
 use dulook::settings::Settings;
 use serde_json::json;
 
@@ -71,12 +71,24 @@ fn place(country: &str, zip: &str, city: &str, street: &str, house_number: &str)
 #[test]
 fn location_names_are_country_zip_city_street_house_number() {
     assert_eq!(online::slug(&place("de", "48527", "Nordhorn", "", "")), "DE_48527_Nordhorn");
-    assert_eq!(online::slug(&place("EG", "", "سوهاج", "", "")), "EG_سوهاج");
     assert_eq!(online::slug(&place("DE", " ", " Bad  Bentheim ", "", "")), "DE_Bad-Bentheim");
     assert_eq!(
         online::slug(&place("DE", "48529", "Nordhorn", "Bentheimer Straße", "10a")),
-        "DE_48529_Nordhorn_Bentheimer-Straße_10a"
+        "DE_48529_Nordhorn_Bentheimer-Strasse_10a"
     );
+}
+
+#[test]
+fn location_names_are_spelled_in_ascii() {
+    assert_eq!(online::slug(&place("EG", "", "سوهاج", "", "")), "EG_swhaj");
+    assert_eq!(online::slug(&place("EG", "١١٥٧١", "القاهرة", "شارع عمرو بن العاص", "٣٥")), "EG_11571_alqahra_shara-amrw-bn-alaas_35");
+    assert_eq!(online::slug(&place("DE", "48143", "Münster", "", "")), "DE_48143_Munster");
+    assert_eq!(online::slug(&place("RU", "", "Москва", "", "")), "RU_Moskva");
+    assert_eq!(online::slug(&place("EG", "", "ء", "", "")), "EG");
+}
+
+#[test]
+fn location_names_keep_postcodes_apart_and_name_year_files() {
     assert_ne!(
         online::slug(&place("DE", "48527", "Nordhorn", "", "")),
         online::slug(&place("DE", "48529", "Nordhorn", "", ""))
@@ -187,6 +199,7 @@ fn pinned_locations_are_named_by_their_coordinates_instead_of_the_street() {
         "BR_Rio-de-Janeiro_-22.906800_-43.172900"
     );
     assert_eq!(online::slug(&pinned(alkenstiege, None)), "DE_48529_Nordhorn_Alkenstiege_10");
+    assert_eq!(online::slug(&pinned(place("", "", "", "", ""), Some((52.43301, 7.06913)))), "52.433010_7.069130");
 }
 
 #[test]
@@ -210,14 +223,80 @@ fn a_pin_is_filled_with_the_place_photon_finds_there() {
 }
 
 #[test]
-fn pinned_coordinates_survive_a_street_while_suggested_ones_do_not() {
-    let settings = |pin: bool| {
-        let raw = json!({ "locationStreet": "Alkenstiege", "locationLatitude": "52.43301",
-            "locationLongitude": "7.06913", "locationPinned": pin });
-        Settings::from_raw(raw.as_object().unwrap(), std::path::Path::new("/p"), "/home/u")
+fn online_services_build_their_query_and_folder() {
+    let request = |mode| LocationRequest {
+        mode,
+        country: "de ".to_owned(),
+        city: "Nordhorn".to_owned(),
+        zip: "48529".to_owned(),
+        street: "Alkenstiege".to_owned(),
+        coordinates: Some((52.43301, 7.06913)),
+        ..LocationRequest::default()
     };
-    let pinned = settings(true);
-    assert_eq!((pinned.location_coordinates, pinned.location_pinned), (Some((52.43301, 7.06913)), true));
-    let suggested = settings(false);
-    assert_eq!((suggested.location_coordinates, suggested.location_pinned), (None, false));
+    let folder = |request: LocationRequest| request.query().map(|query| online::slug(&query));
+
+    assert_eq!(folder(request(LocationMode::Map)).as_deref(), Some("DE_48529_Nordhorn_52.433010_7.069130"));
+    // A street is geocoded itself; a suggestion's coordinates are dropped.
+    assert_eq!(request(LocationMode::Address).query().unwrap().coordinates, None);
+    assert_eq!(folder(request(LocationMode::Address)).as_deref(), Some("DE_48529_Nordhorn_Alkenstiege"));
+    // Typed coordinates ignore the address fields.
+    let typed = request(LocationMode::Coordinates).query().unwrap();
+    assert_eq!(online::slug(&typed), "52.433010_7.069130");
+    assert_eq!(typed.country, "");
+
+    let without_coordinates = |mode| LocationRequest { coordinates: None, ..request(mode) };
+    assert_eq!(without_coordinates(LocationMode::Coordinates).query(), None);
+    assert_eq!(without_coordinates(LocationMode::Map).query(), None);
+    assert_eq!(LocationRequest { city: " ".to_owned(), ..request(LocationMode::Address) }.query(), None);
+}
+
+#[test]
+fn legacy_online_setting_selects_its_downloaded_calendar() {
+    let location = |raw: serde_json::Value| {
+        Settings::from_raw(raw.as_object().unwrap(), std::path::Path::new("/p"), "/home/u").location
+    };
+    let pinned = json!({ "location": "online", "locationMode": "map", "locationCountry": "DE", "locationCity": "Nordhorn",
+        "locationZip": "48529", "locationLatitude": "52.43301", "locationLongitude": "7.06913" });
+    assert_eq!(location(pinned), "downloaded/DE_48529_Nordhorn_52.433010_7.069130");
+    assert_eq!(location(json!({ "location": "online" })), "nordhorn");
+}
+
+fn stored(country: &str, city: &str, latitude: f64, longitude: f64) -> OnlineLocation {
+    OnlineLocation {
+        country: country.to_owned(),
+        city: city.to_owned(),
+        zip: String::new(),
+        street: String::new(),
+        house_number: String::new(),
+        latitude,
+        longitude,
+        timezone: "Europe/Berlin".to_owned(),
+        name: String::new(),
+    }
+}
+
+#[test]
+fn downloads_remember_the_service_that_found_them() {
+    let mode = |slug: &str, country: &str, city: &str| LocationMode::infer(slug, &stored(country, city, 52.43301, 7.06913));
+    assert_eq!(mode("52.433010_7.069130", "", ""), LocationMode::Coordinates);
+    assert_eq!(mode("DE_48529_Nordhorn_52.433010_7.069130", "DE", "Nordhorn"), LocationMode::Map);
+    assert_eq!(mode("DE_48527_Nordhorn", "DE", "Nordhorn"), LocationMode::Address);
+}
+
+#[test]
+fn installed_folders_are_listed_named_and_guarded() {
+    let root = std::env::temp_dir().join(format!("dulook-test-installed-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&root);
+    let home = OnlineLocation { name: "Home".to_owned(), ..stored("DE", "Nordhorn", 52.4, 7.0) };
+    std::fs::create_dir_all(root.join("A_1")).unwrap();
+    online::write_location(&root.join("A_1"), &home).unwrap();
+    std::fs::create_dir_all(root.join("B_2")).unwrap();
+
+    let listed = online::downloaded_locations(&root);
+    let guarded: Vec<bool> =
+        ["A_1", "B_2", "..", "", "A_1/../B_2"].iter().map(|folder| online::installed_folder(&root, folder).is_some()).collect();
+    std::fs::remove_dir_all(&root).unwrap();
+
+    assert_eq!(listed, vec![("A_1".to_owned(), home)]);
+    assert_eq!(guarded, [true, false, false, false, false]);
 }

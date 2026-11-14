@@ -39,6 +39,33 @@ Item {
 
   readonly property string language: backendState.language === "ar" ? "ar" : "en"
   readonly property string hadithLanguage: backendState.hadithLanguage === "ar" ? "ar" : "en"
+  readonly property string location: backendState.location || "online"
+  readonly property var bundledLocations: backendState.bundledLocations || []
+  readonly property string locationCountry: backendState.locationCountry || ""
+  readonly property string locationCity: backendState.locationCity || ""
+  readonly property string locationZip: backendState.locationZip || ""
+  readonly property string locationStreet: backendState.locationStreet || ""
+  readonly property string locationHouseNumber: backendState.locationHouseNumber || ""
+  readonly property string locationLatitude: backendState.locationLatitude || ""
+  readonly property string locationLongitude: backendState.locationLongitude || ""
+  readonly property string onlineLocationLabel: backendState.onlineLocationLabel || ""
+  readonly property string calendarNotice: backendState.calendarNotice || ""
+  readonly property bool downloadActive: backendState.downloadActive === true
+  readonly property string downloadStatus: backendState.downloadStatus || ""
+  readonly property var placeSuggestions: backendState.placeSuggestions || []
+  readonly property bool locationPinned: backendState.locationPinned === true
+  // Coordinates of the shown online calendar; the map centers on them.
+  readonly property string shownLatitude: backendState.shownLatitude || ""
+  readonly property string shownLongitude: backendState.shownLongitude || ""
+  // `{ generation, place }` of the latest map pin lookup; `place` is null when nothing is there.
+  readonly property var pinnedPlace: backendState.pinnedPlace || null
+  readonly property string mapTileDir: backendState.mapTileDir || ""
+  readonly property var mapTiles: backendState.mapTiles || []
+  // ISO 3166-1 countries for the online location picker: static display data read once.
+  property var countryList: []
+  readonly property var countries: countryList.map(function(country) {
+    return { value: country.code, label: language === "ar" ? country.ar : country.en }
+  })
   readonly property string calendarPath: backendState.calendarPath || ""
   readonly property bool calendarReady: backendState.calendarReady === true
   readonly property string calendarError: backendState.calendarError || ""
@@ -93,6 +120,14 @@ Item {
   function testSound() { send({ cmd: "testSound" }) }
   function stopSound() { send({ cmd: "stopSound" }) }
   function stopPrayerSound(alertKey) { send({ cmd: "stopPrayerSound", key: String(alertKey) }) }
+  function suggestPlaces(field, country, city, zip, street, houseNumber) {
+    send({ cmd: "suggestPlaces", field: String(field), country: String(country), city: String(city),
+      zip: String(zip), street: String(street), houseNumber: String(houseNumber) })
+  }
+  function clearPlaceSuggestions() { send({ cmd: "clearPlaceSuggestions" }) }
+  function pinPlace(latitude, longitude) { send({ cmd: "pinPlace", latitude: Number(latitude), longitude: Number(longitude) }) }
+  function requestMapTiles(keys) { send({ cmd: "mapTiles", tiles: keys }) }
+  function downloadCalendar() { send({ cmd: "downloadCalendar" }) }
 
   function consumeBackendLine(line) {
     var message
@@ -140,6 +175,19 @@ Item {
     onTriggered: if (!backend.running) backend.running = true
   }
 
+  property FileView countriesFile: FileView {
+    path: root.pluginDir + "data/countries.json"
+    watchChanges: false
+    printErrors: false
+    onLoaded: {
+      try {
+        root.countryList = JSON.parse(text())
+      } catch (error) {
+        console.warn("Dulook: invalid data/countries.json:", error)
+      }
+    }
+  }
+
   IpcHandler {
     target: "deyaxshami.dulook"
     function open(): void { if (root.shell) root.shell.summon("deyaxshami.dulook", "{}") }
@@ -155,6 +203,15 @@ Item {
       return JSON.stringify({
         language: root.language,
         hadithLanguage: root.hadithLanguage,
+        location: root.location,
+        locationCountry: root.locationCountry,
+        locationCity: root.locationCity,
+        locationZip: root.locationZip,
+        locationStreet: root.locationStreet,
+        locationHouseNumber: root.locationHouseNumber,
+        onlineLocationLabel: root.onlineLocationLabel,
+        calendarNotice: root.calendarNotice,
+        downloadStatus: root.downloadStatus,
         calendarPath: root.calendarPath,
         calendarReady: root.calendarReady,
         calendarError: root.calendarError,

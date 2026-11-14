@@ -13,8 +13,10 @@ access is used only to request Arabic and English Hadith; a reviewed set of
 - English interface by default with a complete Arabic mode
 - Independent English or Arabic language selection for Hadith content
 - System-local timezone and daylight-saving behavior
-- User-selected CSV with automatic reload on file changes
-- Bundled 2026 Nordhorn prayer calendar and four Adhan recordings
+- Online location (country, city, optional ZIP code) downloaded for this year and the next 10,
+  or a calendar bundled under `data/`
+- Optional custom CSV with automatic reload on file changes
+- Four bundled Adhan recordings
 - Native prayer notifications on every monitor, including a reminder 15 minutes before each prayer
 - A notification when the last third of the night begins
 - Independent prayer-time, 15-minute, last-third, per-prayer, and DND controls
@@ -73,11 +75,88 @@ omarchy-restart-shell
 
 ## Prayer Calendar
 
-Dulook starts with the bundled `data/prayer-times-2026-nordhorn.csv` calendar.
-It covers Nordhorn for 2026 only. Choose a local CSV in Settings when using
-Dulook in another location or year. The selected file is read directly: it is
-not uploaded, copied, or cached. If it is moved or deleted, prayer times and
-alerts remain unavailable until a valid path is selected.
+Choose a location in Settings → Prayer calendar. **Online (country / city)** is
+the default. Dulook loads the location's calendar for the current year,
+together with the neighbouring years so prayers around New Year are scheduled,
+and switches files automatically when the year changes. Folders under `data/`
+(`data/<location>/prayer-times-<year>-<location>.csv`) also appear as
+locations; none are bundled at the moment.
+
+Choose **Custom CSV…** to use any local calendar instead. The selected file is
+read directly: it is not uploaded, copied, or cached. If it is moved or
+deleted, prayer times and alerts remain unavailable until a valid path is
+selected. Settings saved before locations existed keep their custom CSV.
+
+### Online location
+
+Choose **Online (country / city)**, pick a country, and type a city, plus an
+optional ZIP code, street and house number. Suggestions for the field you are
+typing in come from [Photon](https://photon.komoot.io) (OpenStreetMap). Choosing
+a city also fixes the coordinates. Choosing a street lists house numbers on it.
+House-number suggestions only cover houses OpenStreetMap knows near the street,
+so any number can still be typed. **Find & download**
+resolves the place to latitude/longitude and downloads the current year plus the
+next 10 years from [salatcalendar.com](https://www.salatcalendar.com). It uses an
+anonymous session whose cookie jar is a private temporary file, deleted
+afterwards; no account or browser cookies are used.
+
+**Pick on map** opens an [OpenStreetMap](https://www.openstreetmap.org/copyright)
+map in the panel: drag to move, scroll or use +/− to zoom, and click to drop a
+pin. The pin's exact coordinates are used for the calendar, and the country,
+city, ZIP code, street and house number at that point are filled in from
+Photon. **Remove pin** goes back to the typed address. Map tiles are downloaded
+with Dulook's User-Agent and cached for a week in `$XDG_CACHE_HOME/dulook/tiles/`
+(default `~/.cache/dulook/tiles/`), as the
+[OSM tile policy](https://operations.osmfoundation.org/policies/tiles/) asks.
+
+Every download uses the same calculation settings:
+
+- Fajr and Isha angles: 12°/12°.
+- Dhuhr: +5 minutes.
+- Altitude, Asr madhhab and daylight saving: automatic.
+- Refraction: standard.
+
+Times are calculated for the computer's system time zone.
+
+Each location gets its own folder in `$XDG_DATA_HOME/dulook/calendars/`
+(default `~/.local/share/dulook/calendars/`), named
+`[Country]_[ZIP]_[City]_[Street]_[HouseNumber]`, with one
+`<folder>_<year>.csv` per year. Optional parts that are empty are left out, for
+example `DE_48527_Nordhorn/DE_48527_Nordhorn_2027.csv` or
+`EG_سوهاج/EG_سوهاج_2027.csv`. A `location.json` describes the place.
+
+A pinned location is named `[Country]_[ZIP]_[City]_[Latitude]_[Longitude]`
+instead, with 6 decimals and without street and house number, for example
+`DE_48529_Nordhorn_52.433010_7.069130`.
+
+The optional street and house number make the coordinates more precise. If
+Photon cannot find that street, Dulook uses the ZIP code or the city instead. A
+house number is only used together with a street. A pin wins over both.
+
+**When Dulook downloads**
+- A new country, city, ZIP code, street or house number gets a new folder and its own 11 years (this year and the next 10).
+- Switching back to a location that already has a folder reuses its files; changing only the ZIP code (or street/house number) counts as a new location.
+- A folder whose current year is missing gets only its missing years, for example after the last downloaded year ends.
+- When the chosen coordinates move more than 5 km from the stored ones.
+- On **Download again**.
+
+**When something fails**
+- If the place cannot be found or the download fails, Dulook keeps showing the last location that worked and retries after 30 minutes.
+- Nothing is detected automatically; the location only changes when you change it.
+
+### Adding a bundled location
+
+To add a bundled location, create `data/<name>/` with one
+`prayer-times-<year>-<name>.csv` per year and add `<name>` to the `location`
+options in `manifest.json`. The same scraper downloads them:
+
+```bash
+cargo run --release --bin dulook-data -- calendar --country DE --city Nordhorn --zip 48527 \
+  [--lat 52.4722 --lon 7.0476] [--from 2026] [--years 11] [--out data/<name>]
+```
+
+Files are named `[Country]_[ZIP]_[City]_<year>.csv`. Rename them to
+`prayer-times-<year>-<name>.csv` for a bundled location.
 
 CSV times are interpreted in the computer's current system timezone. Use a
 calendar prepared for the same location and timezone as the computer.

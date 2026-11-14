@@ -241,6 +241,20 @@ pub fn parse_calendar(csv: &str) -> Result<Calendar, String> {
     Ok(calendar)
 }
 
+/// Joins calendars of consecutive periods (one bundled CSV per year) into one.
+pub fn merge_calendars(calendars: impl IntoIterator<Item = Calendar>) -> Result<Calendar, String> {
+    let mut merged = Calendar::default();
+    for calendar in calendars {
+        for (key, prayers) in calendar.dates {
+            if merged.dates.contains_key(&key) {
+                return Err(format!("Duplicate date: {key}"));
+            }
+            merged.dates.insert(key, prayers);
+        }
+    }
+    Ok(merged)
+}
+
 fn date_from_key(key: &str) -> Option<NaiveDate> {
     NaiveDate::parse_from_str(key, "%Y-%m-%d").ok()
 }

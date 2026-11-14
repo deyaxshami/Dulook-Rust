@@ -1,7 +1,9 @@
 use std::collections::BTreeSet;
+use std::path::Path;
 
 use chrono::{Datelike, Local, TimeZone};
-use dulook::model::{self, Prayer};
+use dulook::locations;
+use dulook::model::{self, Calendar, Prayer};
 use dulook::translations::{self, AR, EN, Lang};
 
 const ENGLISH_CSV: &str = "Day,Date,Hijri,Fajr,Sunrise,Dhuhr,Asr,Maghrib,Isha
@@ -9,10 +11,22 @@ Monday,01/06/2026,,03:00 am,,01:15 pm,05:30 pm,10:00 pm,12:10 am
 Tuesday,02/06/2026,,02:59 am,,01:15 pm,05:31 pm,10:01 pm,12:11 am
 Wednesday,03/06/2026,,02:58 am,,01:15 pm,05:32 pm,10:02 pm,12:12 am";
 
-const BUNDLED_CALENDAR: &str = include_str!("../data/prayer-times-2026-nordhorn.csv");
-
 fn local_ms(year: i32, month: u32, day: u32, hour: u32, minute: u32, second: u32) -> i64 {
     Local.with_ymd_and_hms(year, month, day, hour, minute, second).single().unwrap().timestamp_millis()
+}
+
+fn plugin_dir() -> &'static Path {
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+}
+
+fn bundled_calendar(location: &str, year: i32) -> Calendar {
+    let path = locations::calendar_file(&plugin_dir().join("data"), location, year);
+    let csv = std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
+    model::parse_calendar(&csv).unwrap_or_else(|e| panic!("{}: {e}", path.display()))
+}
+
+fn one_day_calendar(row: &str) -> Calendar {
+    model::parse_calendar(&format!("Date,Fajr,Dhuhr,Asr,Maghrib,Isha\n{row}")).unwrap()
 }
 
 #[test]
@@ -36,18 +50,41 @@ fn parses_arabic_headers_and_iso_dates() {
 }
 
 #[test]
-fn bundles_a_complete_2026_nordhorn_prayer_calendar() {
-    let calendar = model::parse_calendar(BUNDLED_CALENDAR).unwrap();
-    assert_eq!(calendar.row_count(), 365);
-    assert_eq!(calendar.first_date(), "2026-01-01");
-    assert_eq!(calendar.last_date(), "2026-12-31");
+fn manifest_lists_online_bundled_and_custom_locations_with_complete_years() {
+    let manifest: serde_json::Value = serde_json::from_str(include_str!("../manifest.json")).unwrap();
+    let schema = manifest["barWidget"]["schema"].as_array().unwrap();
+    let options = schema.iter().find(|entry| entry["key"] == "location").unwrap()["options"].clone();
+    let mut expected = vec![locations::ONLINE.to_owned()];
+    expected.extend(locations::bundled_locations(plugin_dir()));
+    expected.push(locations::CUSTOM.to_owned());
+    assert_eq!(options, serde_json::json!(expected));
+
+    for location in locations::bundled_locations(plugin_dir()) {
+        for year in 2026..=2037 {
+            let calendar = bundled_calendar(&location, year);
+            assert_eq!(calendar.first_date(), format!("{year}-01-01"), "{location} {year}");
+            assert_eq!(calendar.last_date(), format!("{year}-12-31"), "{location} {year}");
+        }
+    }
+}
+
+#[test]
+fn merged_years_carry_the_next_prayer_across_new_year() {
+    let december = || one_day_calendar("31/12/2026,07:17 am,12:40 pm,02:12 pm,04:29 pm,05:53 pm");
+    let january = one_day_calendar("01/01/2027,07:17 am,12:40 pm,02:13 pm,04:30 pm,05:54 pm");
+    let calendar = model::merge_calendars([december(), january]).unwrap();
+    let next = model::snapshot(&calendar, local_ms(2026, 12, 31, 23, 0, 0)).next.unwrap();
+    assert_eq!(next.name, Prayer::Fajr);
+    assert_eq!(next.prayer_date, "2027-01-01");
+    assert!(model::merge_calendars([december(), december()]).is_err());
 }
 
 #[test]
 fn bundles_valid_mp3_defaults_and_references_them_from_the_manifest() {
     let manifest: serde_json::Value = serde_json::from_str(include_str!("../manifest.json")).unwrap();
     let defaults = &manifest["barWidget"]["defaults"];
-    assert_eq!(defaults["calendarPath"], "data/prayer-times-2026-nordhorn.csv");
+    assert_eq!(defaults["location"], locations::DEFAULT_LOCATION);
+    assert_eq!(defaults["calendarPath"], "");
     assert_eq!(defaults["soundEnabled"], true);
     assert_eq!(defaults["soundPath"], "adans/adan_04.mp3");
     for name in ["adan_01.mp3", "adan_02.mp3", "adan_03.mp3", "adan_04.mp3"] {

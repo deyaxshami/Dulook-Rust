@@ -6,6 +6,7 @@
 use serde::Deserialize;
 use serde_json::{Map, Value};
 
+use crate::online::{DownloadError, OnlineLocation, PlaceSuggestion, SuggestField};
 use crate::service::Hadith;
 
 #[derive(Debug, Deserialize)]
@@ -30,6 +31,32 @@ pub enum Command {
     StopPrayerSound {
         key: String,
     },
+    #[serde(rename_all = "camelCase")]
+    SuggestPlaces {
+        field: SuggestField,
+        #[serde(default)]
+        country: String,
+        #[serde(default)]
+        city: String,
+        #[serde(default)]
+        zip: String,
+        #[serde(default)]
+        street: String,
+        #[serde(default)]
+        house_number: String,
+    },
+    ClearPlaceSuggestions,
+    /// Reverse-geocodes a point pinned on the map.
+    PinPlace {
+        latitude: f64,
+        longitude: f64,
+    },
+    /// Map tiles (`z/x/y`) the settings map shows; missing ones are downloaded.
+    MapTiles {
+        #[serde(default)]
+        tiles: Vec<String>,
+    },
+    DownloadCalendar,
 }
 
 pub fn parse_command(line: &str) -> Result<Command, String> {
@@ -40,4 +67,9 @@ pub enum Event {
     Command(Command),
     StdinClosed,
     HadithFinished(Result<Hadith, String>),
+    DownloadProgress { done: usize, total: usize },
+    DownloadFinished { slug: String, result: Result<OnlineLocation, DownloadError> },
+    PlaceSuggestions { generation: u64, result: Result<Vec<PlaceSuggestion>, String> },
+    PinnedPlace { generation: u64, result: Result<Option<PlaceSuggestion>, String> },
+    MapTilesFetched { batch: Vec<String>, result: Result<(), String> },
 }

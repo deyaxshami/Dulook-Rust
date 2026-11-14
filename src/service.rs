@@ -10,20 +10,25 @@ use std::sync::LazyLock;
 use std::sync::mpsc::Sender;
 use std::time::{Duration, Instant, SystemTime};
 
+use chrono::{Datelike, Local};
 use regex::Regex;
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::{Map, Value, json};
 
 use crate::jsutil::{js_number, js_string, js_trim, localized_digits, now_ms, pad2, timezone_offset_minutes};
+use crate::locations;
 use crate::model::{self, Calendar, Prayer, PrayerEvent, PrayerTimes};
+use crate::online::{self, DownloadError, OnlineLocation, OnlineQuery, PlaceSuggestion, SuggestField};
 use crate::protocol::{Command as Cmd, Event};
 use crate::settings::{Settings, expand_path};
+use crate::tiles;
 use crate::translations::{self, Lang};
 
 const ALERT_GRACE_MS: i64 = 120_000;
 const PRAYER_REMINDER_LEAD_MS: i64 = 15 * 60 * 1000;
 const HADITH_HISTORY_LIMIT: usize = 20;
 const HADITH_RETRY: Duration = Duration::from_secs(5 * 60);
+const DOWNLOAD_RETRY: Duration = Duration::from_secs(30 * 60);
 const HADITH_API: &str = "https://cdn.jsdelivr.net/gh/fawazahmed0/hadith-api@df57907be35291c91ad6a6691180e22ca9920784/editions/";
 
 static VARIANT: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^([0-9]+)\.([0-9]+)$").unwrap());
@@ -75,6 +80,9 @@ struct StateFile {
     last_reminder_key: String,
     #[serde(deserialize_with = "lenient_string")]
     last_third_alert_key: String,
+    /// Last online location whose current-year calendar loaded; shown when the chosen one fails.
+    #[serde(deserialize_with = "lenient_string")]
+    last_online_slug: String,
 }
 
 pub struct Paths {
@@ -83,27 +91,33 @@ pub struct Paths {
     pub cache_file: PathBuf,
     pub state_file: PathBuf,
     pub home: String,
+    /// `$XDG_DATA_HOME/dulook`: downloaded calendars live in its `calendars/` folder.
+    pub data_dir: PathBuf,
+    /// `$XDG_CACHE_HOME/dulook/tiles`: OpenStreetMap tiles of the settings map.
+    pub tile_dir: PathBuf,
 }
 
 type FileSignature = Option<(SystemTime, u64, u64)>;
 
-fn file_signature(path: &str) -> FileSignature {
+fn file_signature(path: &Path) -> FileSignature {
     let metadata = fs::metadata(path).ok()?;
     Some((metadata.modified().ok()?, metadata.len(), metadata.ino()))
 }
 
-/// Writes `text` atomically (temporary file + rename); errors are logged and ignored.
+/// Writes `text` atomically (temporary file + rename).
+pub(crate) fn try_write_atomic(path: &Path, text: &str) -> std::io::Result<()> {
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    let mut temporary = path.as_os_str().to_owned();
+    temporary.push(".tmp");
+    fs::write(&temporary, text)?;
+    fs::rename(&temporary, path)
+}
+
+/// [`try_write_atomic`] with errors logged and ignored.
 fn write_atomic(path: &Path, text: &str) {
-    let result = (|| {
-        if let Some(parent) = path.parent() {
-            fs::create_dir_all(parent)?;
-        }
-        let mut temporary = path.as_os_str().to_owned();
-        temporary.push(".tmp");
-        fs::write(&temporary, text)?;
-        fs::rename(&temporary, path)
-    })();
-    if let Err(error) = result {
+    if let Err(error) = try_write_atomic(path, text) {
         eprintln!("Dulook: could not write {}: {error}", path.display());
     }
 }
@@ -208,12 +222,14 @@ pub struct Service {
     settings: Option<Settings>,
     pub dnd: bool,
     bundled_sounds: Vec<String>,
+    bundled_locations: Vec<String>,
 
     calendar: Option<Calendar>,
     calendar_ready: bool,
     calendar_error: Option<&'static str>,
-    calendar_text: String,
-    calendar_signature: FileSignature,
+    calendar_texts: Vec<String>,
+    /// Files of the selected calendar and their signatures when it was last read.
+    calendar_files: Vec<(PathBuf, FileSignature)>,
     next_prayer: Option<PrayerEvent>,
     remaining_seconds: i64,
     prayer_rows: Vec<(Prayer, String, String)>,
@@ -237,12 +253,31 @@ pub struct Service {
     hadith_loading: bool,
     hadith_source: String,
     pub hadith_retry_at: Option<Instant>,
+
+    /// Online location whose files are loaded: the chosen one, or the last working one.
+    shown_online_slug: Option<String>,
+    shown_online_location: Option<OnlineLocation>,
+    last_online_slug: String,
+    /// Slug, finished years and total years of the running download.
+    download: Option<(String, usize, usize)>,
+    download_error: Option<&'static str>,
+    pub download_retry_at: Option<Instant>,
+    place_suggestions: Vec<PlaceSuggestion>,
+    suggest_generation: u64,
+    /// Generation and result of the latest map pin lookup.
+    pinned_place: Option<(u64, Option<PlaceSuggestion>)>,
+    pin_generation: u64,
+    /// Tiles the settings map shows, those cached on disk, and whether a download runs.
+    map_tiles: Vec<String>,
+    map_tiles_ready: Vec<String>,
+    map_fetch_active: bool,
 }
 
 impl Service {
     pub fn new(paths: Paths, events: Sender<Event>) -> Service {
         Service {
             bundled_sounds: bundled_sounds(&paths.plugin_dir),
+            bundled_locations: locations::bundled_locations(&paths.plugin_dir),
             paths,
             events,
             settings: None,
@@ -250,8 +285,8 @@ impl Service {
             calendar: None,
             calendar_ready: false,
             calendar_error: None,
-            calendar_text: String::new(),
-            calendar_signature: None,
+            calendar_texts: Vec::new(),
+            calendar_files: Vec::new(),
             next_prayer: None,
             remaining_seconds: 0,
             prayer_rows: Vec::new(),
@@ -273,6 +308,19 @@ impl Service {
             hadith_loading: false,
             hadith_source: "offline".to_owned(),
             hadith_retry_at: None,
+            shown_online_slug: None,
+            shown_online_location: None,
+            last_online_slug: String::new(),
+            download: None,
+            download_error: None,
+            download_retry_at: None,
+            place_suggestions: Vec::new(),
+            suggest_generation: 0,
+            pinned_place: None,
+            pin_generation: 0,
+            map_tiles: Vec::new(),
+            map_tiles_ready: Vec::new(),
+            map_fetch_active: false,
         }
     }
 
@@ -305,6 +353,26 @@ impl Service {
             }
             Cmd::StopSound => self.stop_sound(),
             Cmd::StopPrayerSound { key } => self.stop_prayer_sound(&key),
+            Cmd::SuggestPlaces { field, country, city, zip, street, house_number } => {
+                let query = OnlineQuery { country, city, zip, street, house_number, ..OnlineQuery::default() };
+                self.suggest_places(field, query);
+            }
+            Cmd::ClearPlaceSuggestions => {
+                self.suggest_generation += 1;
+                self.place_suggestions.clear();
+            }
+            Cmd::PinPlace { latitude, longitude } => self.pin_place(latitude, longitude),
+            Cmd::MapTiles { tiles: requested } => {
+                let mut keys: Vec<String> = Vec::new();
+                for key in requested {
+                    if tiles::valid_key(&key) && !keys.contains(&key) && keys.len() < tiles::MAX_TILES {
+                        keys.push(key);
+                    }
+                }
+                self.map_tiles = keys;
+                self.refresh_map_tiles(&[]);
+            }
+            Cmd::DownloadCalendar => self.ensure_online_calendar(true),
         }
     }
 
@@ -333,14 +401,24 @@ impl Service {
 
     pub fn apply_settings(&mut self, raw: &Map<String, Value>) {
         let next = Settings::from_raw(raw, &self.paths.plugin_dir, &self.paths.home);
-        let calendar_changed = self.settings.as_ref().is_none_or(|s| s.calendar_path != next.calendar_path);
+        let calendar_changed = self.settings.as_ref().is_none_or(|s| {
+            s.location != next.location
+                || s.calendar_path != next.calendar_path
+                || s.location_country != next.location_country
+                || s.location_city != next.location_city
+                || s.location_zip != next.location_zip
+                || s.location_street != next.location_street
+                || s.location_house_number != next.location_house_number
+                || s.location_coordinates != next.location_coordinates
+                || s.location_pinned != next.location_pinned
+        });
         self.settings = Some(next);
         if calendar_changed {
-            let empty = self.settings().calendar_path.is_empty();
-            self.clear_calendar(if empty { Some("noCalendar") } else { None });
-            if !empty {
-                self.reload_calendar();
-            }
+            // A new choice is tried right away instead of waiting for the previous one's retry.
+            self.download_retry_at = None;
+            self.download_error = None;
+            self.clear_calendar(None);
+            self.reload_calendar();
         }
     }
 
@@ -355,33 +433,292 @@ impl Service {
         self.remaining_seconds = 0;
     }
 
-    pub fn reload_calendar(&mut self) {
-        if self.settings().calendar_path.is_empty() {
-            self.clear_calendar(Some("noCalendar"));
-            return;
-        }
-        let path = self.settings().effective_calendar_path.clone();
-        self.calendar_signature = file_signature(&path);
-        match fs::read(&path) {
-            Ok(bytes) => {
-                self.calendar_text = String::from_utf8_lossy(&bytes).into_owned();
-                self.load_calendar();
+    /// The custom CSV, or the bundled/online location's current year with its neighbours
+    /// so prayers around New Year still have the adjacent day.
+    fn calendar_sources(&self) -> Vec<PathBuf> {
+        let settings = self.settings();
+        if settings.location == locations::CUSTOM {
+            if settings.calendar_path.is_empty() {
+                return Vec::new();
             }
-            Err(_) => self.clear_calendar(Some("fileUnavailable")),
+            return vec![PathBuf::from(&settings.effective_calendar_path)];
+        }
+        let years = {
+            let year = Local::now().year();
+            year - 1..=year + 1
+        };
+        if settings.location == locations::ONLINE {
+            let Some(slug) = &self.shown_online_slug else { return Vec::new() };
+            let root = self.online_root();
+            return years.map(|year| online::calendar_file(&root, slug, year)).collect();
+        }
+        let root = self.paths.plugin_dir.join("data");
+        years.map(|year| locations::calendar_file(&root, &settings.location, year)).collect()
+    }
+
+    fn calendar_signatures(&self) -> Vec<(PathBuf, FileSignature)> {
+        self.calendar_sources()
+            .into_iter()
+            .map(|path| {
+                let signature = file_signature(&path);
+                (path, signature)
+            })
+            .collect()
+    }
+
+    pub fn reload_calendar(&mut self) {
+        let online = self.settings().location == locations::ONLINE;
+        if online {
+            self.select_online_slug();
+        }
+        self.read_calendar_files(online);
+        if online {
+            self.remember_online_slug();
+            self.ensure_online_calendar(false);
         }
     }
 
-    fn check_calendar_file(&mut self) {
-        if self.settings().calendar_path.is_empty() {
+    fn read_calendar_files(&mut self, online: bool) {
+        let settings = self.settings();
+        let custom = settings.location == locations::CUSTOM;
+        let error = if custom && settings.calendar_path.is_empty() {
+            Some("noCalendar")
+        } else if online && self.shown_online_slug.is_none() {
+            Some("onlineLocationMissing")
+        } else if !custom && !online && !self.bundled_locations.contains(&settings.location) {
+            Some("unknownLocation")
+        } else {
+            None
+        };
+        if let Some(key) = error {
+            self.calendar_files.clear();
+            self.calendar_texts.clear();
+            self.clear_calendar(Some(key));
             return;
         }
-        if file_signature(&self.settings().effective_calendar_path) != self.calendar_signature {
+
+        self.calendar_files = self.calendar_signatures();
+        // A bundled or online location needs the current year (the middle file); its neighbours are optional.
+        let required = if custom { 0 } else { 1 };
+        let mut texts = Vec::with_capacity(self.calendar_files.len());
+        for (index, (path, _)) in self.calendar_files.iter().enumerate() {
+            match fs::read(path) {
+                Ok(bytes) => texts.push(String::from_utf8_lossy(&bytes).into_owned()),
+                Err(_) if index != required => {}
+                Err(_) => {
+                    self.calendar_texts.clear();
+                    self.clear_calendar(Some(if custom {
+                        "fileUnavailable"
+                    } else if online {
+                        "onlineCalendarMissing"
+                    } else {
+                        "noCalendarForYear"
+                    }));
+                    return;
+                }
+            }
+        }
+        self.calendar_texts = texts;
+        self.load_calendar();
+    }
+
+    // ---- online location ------------------------------------------------
+
+    fn online_root(&self) -> PathBuf {
+        online::calendars_root(&self.paths.data_dir)
+    }
+
+    /// Shows the chosen location when its current year is downloaded, else the last working one.
+    fn select_online_slug(&mut self) {
+        let root = self.online_root();
+        let year = Local::now().year();
+        let has_year = |slug: &str| online::calendar_file(&root, slug, year).is_file();
+        let last = &self.last_online_slug;
+        let shown = self.settings().online_slug().map(|current| {
+            if !has_year(&current) && !last.is_empty() && *last != current && has_year(last) { last.clone() } else { current }
+        });
+        self.shown_online_location = shown.as_ref().and_then(|slug| online::read_location(&root.join(slug)));
+        self.shown_online_slug = shown;
+    }
+
+    fn remember_online_slug(&mut self) {
+        let Some(current) = self.settings().online_slug() else { return };
+        if self.calendar_ready && self.shown_online_slug.as_ref() == Some(&current) && self.last_online_slug != current {
+            self.last_online_slug = current;
+            self.save_state();
+        }
+    }
+
+    /// Starts a download when the chosen location lacks the current year, moved more than
+    /// [`online::SAME_PLACE_KM`] from its stored coordinates, or `force` is set.
+    pub fn ensure_online_calendar(&mut self, force: bool) {
+        let Some(settings) = self.settings.as_ref() else { return };
+        if settings.location != locations::ONLINE || self.download.is_some() {
+            return;
+        }
+        let Some(slug) = settings.online_slug() else { return };
+        let root = self.online_root();
+        let dir = root.join(&slug);
+        let stored = online::read_location(&dir);
+        let moved = match (settings.location_coordinates, &stored) {
+            (Some(chosen), Some(stored)) => {
+                online::distance_km(chosen, (stored.latitude, stored.longitude)) > online::SAME_PLACE_KM
+            }
+            _ => false,
+        };
+        let year = Local::now().year();
+        let has_year = |year: i32| online::calendar_file(&root, &slug, year).is_file();
+        if !(force || moved || !has_year(year)) {
+            return;
+        }
+        if !force && self.download_retry_at.is_some_and(|retry| Instant::now() < retry) {
+            return;
+        }
+        let years: Vec<i32> =
+            (year..=year + online::YEARS_AHEAD).filter(|&year| force || moved || !has_year(year)).collect();
+        let known = stored.filter(|_| !moved);
+        let query = settings.online_query();
+        let arabic = settings.language.is_arabic();
+        self.download = Some((slug.clone(), 0, years.len()));
+        self.download_error = None;
+        let events = self.events.clone();
+        std::thread::spawn(move || {
+            let progress = |done, total| {
+                let _ = events.send(Event::DownloadProgress { done, total });
+            };
+            let result = online::download(&query, known, &years, &dir, arabic, progress);
+            let _ = events.send(Event::DownloadFinished { slug, result });
+        });
+    }
+
+    pub fn download_progress(&mut self, done: usize, total: usize) {
+        if let Some((_, finished, count)) = &mut self.download {
+            (*finished, *count) = (done, total);
+        }
+    }
+
+    pub fn finish_download(&mut self, slug: String, result: Result<OnlineLocation, DownloadError>) {
+        self.download = None;
+        let current = self.settings().online_slug();
+        match result {
+            Ok(_) => {
+                self.download_error = None;
+                self.download_retry_at = None;
+            }
+            Err(error) => {
+                eprintln!("Dulook: downloading prayer times for {slug} failed: {error}");
+                // A failure for a location the user has since replaced is not shown or retried.
+                if current.as_ref() == Some(&slug) {
+                    self.download_error = Some(error.key());
+                    self.download_retry_at = Some(Instant::now() + DOWNLOAD_RETRY);
+                }
+            }
+        }
+        if self.settings().location == locations::ONLINE {
+            self.reload_calendar();
+        }
+    }
+
+    fn suggest_places(&mut self, field: SuggestField, mut query: OnlineQuery) {
+        self.suggest_generation += 1;
+        // Photon matches whole postcodes only; a partial one would hide the other results.
+        if query.zip.trim().chars().count() < 4 {
+            query.zip.clear();
+        }
+        let long_enough = |text: &str| text.trim().chars().count() >= 2;
+        let ready = match field {
+            SuggestField::City => long_enough(&query.city) || !query.zip.is_empty(),
+            SuggestField::Street | SuggestField::House => long_enough(&query.street),
+        };
+        if !ready {
+            self.place_suggestions.clear();
+            return;
+        }
+        let generation = self.suggest_generation;
+        let arabic = self.lang().is_arabic();
+        let events = self.events.clone();
+        std::thread::spawn(move || {
+            let result = online::suggest_places(&query, field, arabic);
+            let _ = events.send(Event::PlaceSuggestions { generation, result });
+        });
+    }
+
+    pub fn finish_suggestions(&mut self, generation: u64, result: Result<Vec<PlaceSuggestion>, String>) {
+        if generation != self.suggest_generation {
+            return;
+        }
+        match result {
+            Ok(suggestions) => self.place_suggestions = suggestions,
+            Err(error) => {
+                eprintln!("Dulook: place suggestions failed: {error}");
+                self.place_suggestions.clear();
+            }
+        }
+    }
+
+    fn pin_place(&mut self, latitude: f64, longitude: f64) {
+        if !latitude.is_finite() || !longitude.is_finite() || latitude.abs() > 90.0 || longitude.abs() > 180.0 {
+            return;
+        }
+        self.pin_generation += 1;
+        let generation = self.pin_generation;
+        let arabic = self.lang().is_arabic();
+        let events = self.events.clone();
+        std::thread::spawn(move || {
+            let result = online::place_at((latitude, longitude), arabic);
+            let _ = events.send(Event::PinnedPlace { generation, result });
+        });
+    }
+
+    pub fn finish_pin(&mut self, generation: u64, result: Result<Option<PlaceSuggestion>, String>) {
+        if generation != self.pin_generation {
+            return;
+        }
+        let place = result.unwrap_or_else(|error| {
+            eprintln!("Dulook: pin lookup failed: {error}");
+            None
+        });
+        self.pinned_place = Some((generation, place));
+    }
+
+    /// Marks the shown tiles that are cached and downloads the missing ones, one batch at a
+    /// time. Tiles in `skip` just failed and wait for the next request.
+    fn refresh_map_tiles(&mut self, skip: &[String]) {
+        let dir = &self.paths.tile_dir;
+        let (ready, missing): (Vec<String>, Vec<String>) =
+            self.map_tiles.iter().cloned().partition(|key| tiles::is_fresh(&tiles::tile_path(dir, key)));
+        self.map_tiles_ready = ready;
+        let missing: Vec<String> = missing.into_iter().filter(|key| !skip.contains(key)).collect();
+        if self.map_fetch_active || missing.is_empty() {
+            return;
+        }
+        self.map_fetch_active = true;
+        let dir = dir.clone();
+        let events = self.events.clone();
+        std::thread::spawn(move || {
+            let result = tiles::fetch(&dir, &missing);
+            let _ = events.send(Event::MapTilesFetched { batch: missing, result });
+        });
+    }
+
+    pub fn finish_map_tiles(&mut self, batch: Vec<String>, result: Result<(), String>) {
+        self.map_fetch_active = false;
+        if let Err(error) = result {
+            eprintln!("Dulook: {error}");
+        }
+        self.refresh_map_tiles(&batch);
+    }
+
+    /// Reloads when a calendar file changes or the year rolls over to other bundled files.
+    fn check_calendar_file(&mut self) {
+        if !self.calendar_files.is_empty() && self.calendar_signatures() != self.calendar_files {
             self.reload_calendar();
         }
     }
 
     fn load_calendar(&mut self) {
-        match model::parse_calendar(&self.calendar_text) {
+        let parsed: Result<Vec<Calendar>, String> = self.calendar_texts.iter().map(|text| model::parse_calendar(text)).collect();
+        match parsed.and_then(model::merge_calendars) {
             Ok(calendar) => {
                 self.calendar = Some(calendar);
                 self.calendar_ready = true;
@@ -731,6 +1068,7 @@ impl Service {
             self.last_alert_key = state.last_alert_key;
             self.last_reminder_key = state.last_reminder_key;
             self.last_third_alert_key = state.last_third_alert_key;
+            self.last_online_slug = state.last_online_slug;
         }
     }
 
@@ -740,6 +1078,7 @@ impl Service {
             last_alert_key: self.last_alert_key.clone(),
             last_reminder_key: self.last_reminder_key.clone(),
             last_third_alert_key: self.last_third_alert_key.clone(),
+            last_online_slug: self.last_online_slug.clone(),
         };
         match serde_json::to_string(&state) {
             Ok(text) => write_atomic(&self.paths.state_file, &(text + "\n")),
@@ -812,11 +1151,65 @@ impl Service {
                 json!({ "value": value, "label": translations::interpolate("adhanOption", lang, &[("number", &number)]) })
             })
             .collect();
+        let bundled_locations: Vec<Value> = self
+            .bundled_locations
+            .iter()
+            .map(|location| json!({ "value": location, "label": locations::label(location) }))
+            .collect();
+        let place = |location: &OnlineLocation| {
+            let city = format!("{} {}", location.city, location.zip).trim_end().to_owned();
+            let street = format!("{} {}", location.street, location.house_number).trim().to_owned();
+            if street.is_empty() { city } else { format!("{city}, {street}") }
+        };
+        let coordinate = |value: Option<f64>| value.map_or_else(String::new, |value| format!("{value:.6}"));
+        let online_label = self.shown_online_location.as_ref().map_or_else(String::new, |location| {
+            self.digits(&format!("{} · {:.4}, {:.4}", place(location), location.latitude, location.longitude))
+        });
+        let calendar_notice = match &self.shown_online_slug {
+            Some(shown) if settings.location == locations::ONLINE && settings.online_slug().as_ref() != Some(shown) => {
+                let name = self.shown_online_location.as_ref().map_or_else(|| shown.clone(), place);
+                translations::interpolate("showingLastLocation", lang, &[("name", &name)])
+            }
+            _ => String::new(),
+        };
+        let download_status = match (&self.download, self.download_error) {
+            (Some((_, done, total)), _) => translations::interpolate(
+                "downloadProgress",
+                lang,
+                &[("done", &self.digits(&done.to_string())), ("total", &self.digits(&total.to_string()))],
+            ),
+            (None, Some(key)) => self.tr(key).to_owned(),
+            (None, None) => String::new(),
+        };
 
-        json!({
+        // Online-location fields are built separately: one `json!` this large exceeds
+        // the macro recursion limit.
+        let online_fields = json!({
+            "locationCountry": settings.location_country,
+            "locationCity": settings.location_city,
+            "locationZip": settings.location_zip,
+            "locationStreet": settings.location_street,
+            "locationHouseNumber": settings.location_house_number,
+            "locationLatitude": coordinate(settings.location_coordinates.map(|c| c.0)),
+            "locationLongitude": coordinate(settings.location_coordinates.map(|c| c.1)),
+            "onlineLocationLabel": online_label,
+            "calendarNotice": calendar_notice,
+            "downloadActive": self.download.is_some(),
+            "downloadStatus": download_status,
+            "placeSuggestions": self.place_suggestions,
+            "locationPinned": settings.location_pinned,
+            "shownLatitude": coordinate(self.shown_online_location.as_ref().map(|l| l.latitude)),
+            "shownLongitude": coordinate(self.shown_online_location.as_ref().map(|l| l.longitude)),
+            "pinnedPlace": self.pinned_place.as_ref().map(|(generation, place)| json!({ "generation": generation, "place": place })),
+            "mapTileDir": self.paths.tile_dir.to_string_lossy(),
+            "mapTiles": self.map_tiles_ready,
+        });
+        let mut payload = json!({
             "type": "state",
             "language": lang.code(),
             "hadithLanguage": settings.hadith_language.code(),
+            "location": settings.location,
+            "bundledLocations": bundled_locations,
             "calendarPath": settings.calendar_path,
             "prayerTimeNotificationsEnabled": settings.prayer_time_notifications_enabled,
             "prayerRemindersEnabled": settings.prayer_reminders_enabled,
@@ -842,7 +1235,11 @@ impl Service {
             "fallbackCount": self.fallback.len(),
             "bundledSounds": bundled,
             "soundChoice": self.sound_choice(),
-        })
+        });
+        if let (Value::Object(payload), Value::Object(online_fields)) = (&mut payload, online_fields) {
+            payload.extend(online_fields);
+        }
+        payload
     }
 
     fn timezone_label(&self) -> String {

@@ -7,6 +7,7 @@ use std::process::ExitCode;
 use std::sync::mpsc::{self, RecvTimeoutError};
 use std::time::{Duration, Instant};
 
+use dulook::{online, tiles};
 use dulook::protocol::{Command, Event, parse_command};
 use dulook::service::{Paths, Service};
 
@@ -28,12 +29,15 @@ fn parse_args() -> Option<Paths> {
             _ => return None,
         }
     }
+    let home = std::env::var("HOME").unwrap_or_default();
     Some(Paths {
         plugin_dir: plugin_dir?,
         omarchy_path: omarchy_path?,
         cache_file: cache_file?,
         state_file: state_file?,
-        home: std::env::var("HOME").unwrap_or_default(),
+        data_dir: online::data_root(&home),
+        tile_dir: tiles::cache_root(&home),
+        home,
     })
 }
 
@@ -82,7 +86,7 @@ fn main() -> ExitCode {
     let (mut last_state, mut last_tick) = (String::new(), String::new());
 
     loop {
-        let deadline = [next_tick, next_hadith, service.hadith_retry_at].into_iter().flatten().min();
+        let deadline = [next_tick, next_hadith, service.hadith_retry_at, service.download_retry_at].into_iter().flatten().min();
         let event = match deadline {
             Some(deadline) => receiver.recv_timeout(deadline.saturating_duration_since(Instant::now())),
             None => receiver.recv().map_err(|_| RecvTimeoutError::Disconnected),
@@ -100,6 +104,11 @@ fn main() -> ExitCode {
             },
             Ok(Event::Command(command)) => service.handle(command),
             Ok(Event::HadithFinished(result)) => service.finish_hadith(result),
+            Ok(Event::DownloadProgress { done, total }) => service.download_progress(done, total),
+            Ok(Event::DownloadFinished { slug, result }) => service.finish_download(slug, result),
+            Ok(Event::PlaceSuggestions { generation, result }) => service.finish_suggestions(generation, result),
+            Ok(Event::PinnedPlace { generation, result }) => service.finish_pin(generation, result),
+            Ok(Event::MapTilesFetched { batch, result }) => service.finish_map_tiles(batch, result),
             Ok(Event::StdinClosed) | Err(RecvTimeoutError::Disconnected) => {
                 service.stop_sound();
                 return ExitCode::SUCCESS;
@@ -120,6 +129,10 @@ fn main() -> ExitCode {
         if service.hadith_retry_at.is_some_and(|retry| now >= retry) {
             service.hadith_retry_at = None;
             service.request_hadith();
+        }
+        if service.download_retry_at.is_some_and(|retry| now >= retry) {
+            service.download_retry_at = None;
+            service.ensure_online_calendar(false);
         }
 
         if service.initialized()

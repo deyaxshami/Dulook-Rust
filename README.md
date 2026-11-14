@@ -40,7 +40,7 @@ and the calculation explained by [IslamWeb](https://www.islamweb.net/en/fatwa/37
 ## Requirements
 
 - Omarchy Shell on x86_64 Linux (the committed `bin/dulook` is an x86_64 build)
-- `mpv` for Adhan playback and `curl` for online Hadith, at `/usr/bin`
+- `mpv` for Adhan playback and `curl` for online Hadith, calendars and map tiles, at `/usr/bin`
 
 ## Install
 
@@ -57,6 +57,12 @@ updated with:
 omarchy plugin update deyaxshami.dulook
 omarchy-restart-shell
 ```
+
+Updating from a build that bundled the Nordhorn calendar keeps your settings,
+but that bundled calendar is gone. Open Dulook's settings, set **Location** to
+**Online (country / city)**, pick a country, type a city or use **Pick on map**,
+and press **Find & download**. Downloaded calendars live in
+`~/.local/share/dulook/calendars/` on each computer and are not synced.
 
 ### Upgrading from the old Dulook
 

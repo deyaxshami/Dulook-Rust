@@ -10,7 +10,7 @@ use crate::model::Prayer;
 use crate::translations::Lang;
 
 pub const DEFAULT_CALENDAR_PATH: &str = "data/prayer-times-2026-nordhorn.csv";
-pub const DEFAULT_SOUND_PATH: &str = "adans/adan_01.mp3";
+pub const DEFAULT_SOUND_PATH: &str = "adans/adan_04.mp3";
 
 #[derive(Clone, Debug)]
 pub struct Settings {

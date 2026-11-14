@@ -49,7 +49,7 @@ Item {
   readonly property string soundPath: backendState.soundPath || ""
   readonly property int soundVolume: backendState.soundVolume !== undefined ? backendState.soundVolume : 80
   readonly property var bundledSounds: backendState.bundledSounds || []
-  readonly property string soundChoice: backendState.soundChoice || "adans/adan_01.mp3"
+  readonly property string soundChoice: backendState.soundChoice || "adans/adan_04.mp3"
   readonly property bool bypassDnd: backendState.bypassDnd === true
   readonly property bool prayerTimeNotificationsEnabled: backendState.prayerTimeNotificationsEnabled !== false
   readonly property bool prayerRemindersEnabled: backendState.prayerRemindersEnabled !== false

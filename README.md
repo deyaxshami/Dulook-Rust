@@ -14,11 +14,11 @@ access is used only to request Arabic and English Hadith; a reviewed set of
 - Independent English or Arabic language selection for Hadith content
 - System-local timezone and daylight-saving behavior
 - User-selected CSV with automatic reload on file changes
-- Bundled 2026 Nordhorn prayer calendar and three Adhan recordings
+- Bundled 2026 Nordhorn prayer calendar and four Adhan recordings
 - Native prayer notifications on every monitor, including a reminder 15 minutes before each prayer
 - A notification when the last third of the night begins
 - Independent prayer-time, 15-minute, last-third, per-prayer, and DND controls
-- Adhan dropdown with three bundled recordings, or your own local MP3, played through `mpv`
+- Adhan dropdown with four bundled recordings, or your own local MP3, played through `mpv`
 - Separate Arabic UI and Hadith font settings
 - Exactly 100 paired Arabic and English offline Hadith
 
@@ -111,8 +111,8 @@ Notifications are enabled for all five prayers by default and use Omarchy's
 native normal-duration popup. One logical notification is sent and Omarchy
 mirrors it to every monitor. DND is respected unless bypass is enabled.
 
-Adhan audio is enabled by default with `adans/adan_01.mp3`. Pick one of the
-bundled recordings (Adhan 1–3, from `adans/`) in the Settings dropdown, or
+Adhan audio is enabled by default with `adans/adan_04.mp3`. Pick one of the
+bundled recordings (Adhan 1–4, from `adans/`) in the Settings dropdown, or
 choose "Custom file…" to select or type the path of your own local MP3. Dulook
 uses a private `mpv` process, respects the system
 sink and volume, and never stops unrelated media players. Left-click a

@@ -34,7 +34,7 @@
       "remindIsha": true,
       "bypassDnd": false,
       "soundEnabled": true,
-      "soundPath": "adans/adan_01.mp3",
+      "soundPath": "adans/adan_04.mp3",
       "soundVolume": 80,
       "arabicUiFont": "Noto Sans Arabic",
       "arabicHadithFont": "Noto Naskh Arabic"
@@ -57,7 +57,7 @@
       { "key": "remindIsha", "type": "boolean", "label": "15-minute reminder for Isha", "defaultValue": true },
       { "key": "bypassDnd", "type": "boolean", "label": "Bypass Do Not Disturb", "defaultValue": false },
       { "key": "soundEnabled", "type": "boolean", "label": "Adhan sound", "defaultValue": true },
-      { "key": "soundPath", "type": "path", "label": "Adhan MP3", "defaultValue": "adans/adan_01.mp3" },
+      { "key": "soundPath", "type": "path", "label": "Adhan MP3", "defaultValue": "adans/adan_04.mp3" },
       { "key": "soundVolume", "type": "integer", "label": "Adhan volume", "min": 0, "max": 100, "step": 5, "defaultValue": 80 },
       { "key": "arabicUiFont", "type": "string", "label": "Arabic UI font", "defaultValue": "Noto Sans Arabic" },
       { "key": "arabicHadithFont", "type": "string", "label": "Arabic Hadith font", "defaultValue": "Noto Naskh Arabic" }

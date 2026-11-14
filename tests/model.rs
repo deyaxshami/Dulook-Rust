@@ -49,8 +49,8 @@ fn bundles_valid_mp3_defaults_and_references_them_from_the_manifest() {
     let defaults = &manifest["barWidget"]["defaults"];
     assert_eq!(defaults["calendarPath"], "data/prayer-times-2026-nordhorn.csv");
     assert_eq!(defaults["soundEnabled"], true);
-    assert_eq!(defaults["soundPath"], "adans/adan_01.mp3");
-    for name in ["adan_01.mp3", "adan_02.mp3", "adan_03.mp3"] {
+    assert_eq!(defaults["soundPath"], "adans/adan_04.mp3");
+    for name in ["adan_01.mp3", "adan_02.mp3", "adan_03.mp3", "adan_04.mp3"] {
         let audio = std::fs::read(format!("{}/adans/{name}", env!("CARGO_MANIFEST_DIR"))).unwrap();
         let has_id3_header = audio.starts_with(b"ID3");
         let has_mpeg_frame = audio[0] == 0xff && (audio[1] & 0xe0) == 0xe0;

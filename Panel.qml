@@ -29,7 +29,7 @@ Panel {
   // Dropdown assigns `value` imperatively on selection, which drops its binding.
   function soundChoiceBinding() {
     return Qt.binding(function() {
-      return root.customSound ? "custom" : (root.service ? root.service.soundChoice : "adans/adan_01.mp3")
+      return root.customSound ? "custom" : (root.service ? root.service.soundChoice : "adans/adan_04.mp3")
     })
   }
 
@@ -592,7 +592,7 @@ Panel {
               id: soundChoiceDropdown
               width: parent.width
               label: root.tr("adhanChoice")
-              value: root.customSound ? "custom" : (root.service ? root.service.soundChoice : "adans/adan_01.mp3")
+              value: root.customSound ? "custom" : (root.service ? root.service.soundChoice : "adans/adan_04.mp3")
               options: (root.service ? root.service.bundledSounds : []).concat([{ value: "custom", label: root.tr("customSound") }])
               foreground: root.foreground
               fontFamily: root.uiFont

@@ -42,15 +42,6 @@ and the calculation explained by [IslamWeb](https://www.islamweb.net/en/fatwa/37
 
 ## Install
 
-The repository is private. Authenticate Git once through GitHub CLI before
-using Omarchy's Git-based plugin commands:
-
-```bash
-gh auth setup-git
-```
-
-Then install the plugin:
-
 ```bash
 omarchy plugin add https://github.com/deyaxshami/Dulook-Rust --enable
 ```
@@ -61,19 +52,22 @@ The repository root is the plugin root, so Git-managed installations can be
 updated with:
 
 ```bash
-omarchy plugin update karem.dulook
+omarchy plugin update deyaxshami.dulook
+omarchy-restart-shell
 ```
 
 ### Upgrading from the old Dulook
 
-The old `Karem-Shami/Dulook` plugin uses the same id, `karem.dulook`, so
-`omarchy plugin add` refuses to install over it and `omarchy plugin update`
-keeps pulling the old repository. Point the existing install at this
-repository instead; this keeps your Dulook settings:
+The old `Karem-Shami/Dulook` plugin and earlier builds of this repository use
+the id `karem.dulook`. Replace it with `deyaxshami.dulook` and carry over its
+settings:
 
 ```bash
-git -C ~/.config/omarchy/plugins/karem.dulook remote set-url origin https://github.com/deyaxshami/Dulook-Rust
-omarchy plugin update karem.dulook --yes
+old=$(jq -c '[.bar.layout[][]? | select(.id == "karem.dulook")][0] // {} | del(.id)' ~/.config/omarchy/shell.json)
+omarchy plugin remove karem.dulook --yes
+omarchy plugin add https://github.com/deyaxshami/Dulook-Rust --enable --yes
+jq --argjson s "$old" '.bar.layout |= map_values(if type == "array" then map(if .id == "deyaxshami.dulook" then . + $s else . end) else . end)' \
+  ~/.config/omarchy/shell.json > /tmp/shell.json && cat /tmp/shell.json > ~/.config/omarchy/shell.json && rm /tmp/shell.json
 omarchy-restart-shell
 ```
 

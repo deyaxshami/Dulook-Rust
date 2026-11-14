@@ -21,7 +21,7 @@ Item {
     for (var s = 0; layout && s < sections.length; s++) {
       var entries = layout[sections[s]] || []
       for (var i = 0; i < entries.length; i++)
-        if (entries[i] && entries[i].id === "karem.dulook") return entries[i]
+        if (entries[i] && entries[i].id === "deyaxshami.dulook") return entries[i]
     }
     return ({})
   }
@@ -141,10 +141,10 @@ Item {
   }
 
   IpcHandler {
-    target: "karem.dulook"
-    function open(): void { if (root.shell) root.shell.summon("karem.dulook", "{}") }
-    function close(): void { if (root.shell) root.shell.hide("karem.dulook") }
-    function toggle(): void { if (root.shell) root.shell.toggle("karem.dulook", "{}") }
+    target: "deyaxshami.dulook"
+    function open(): void { if (root.shell) root.shell.summon("deyaxshami.dulook", "{}") }
+    function close(): void { if (root.shell) root.shell.hide("deyaxshami.dulook") }
+    function toggle(): void { if (root.shell) root.shell.toggle("deyaxshami.dulook", "{}") }
     function refresh(): void { root.reloadCalendar(); root.requestHadith() }
     function nextHadith(): void { root.nextHadith() }
     function fallbackHadith(): void { root.showFallback() }

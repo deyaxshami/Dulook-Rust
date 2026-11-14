@@ -4,9 +4,9 @@ import qs.Ui
 
 BarWidget {
   id: root
-  moduleName: "karem.dulook"
+  moduleName: "deyaxshami.dulook"
 
-  readonly property var dulookService: bar && bar.shell ? bar.shell.serviceFor("karem.dulook") : null
+  readonly property var dulookService: bar && bar.shell ? bar.shell.serviceFor("deyaxshami.dulook") : null
   readonly property bool opened: panelLoader.item ? panelLoader.item.opened === true : false
   readonly property bool popoutSwitchClosing: panelLoader.item ? panelLoader.item.popoutSwitchClosing === true : false
   readonly property string label: {

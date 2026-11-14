@@ -5,7 +5,7 @@ import qs.Ui
 
 Panel {
   id: root
-  moduleName: "karem.dulook"
+  moduleName: "deyaxshami.dulook"
   manageIpc: false
 
   property var anchorItem: null

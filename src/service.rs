@@ -489,7 +489,7 @@ impl Service {
         let omarchy = &self.paths.omarchy_path;
         let mut command = vec![format!("{omarchy}/bin/omarchy-notification-send")];
         if !self.settings().bypass_dnd {
-            command.extend(["--app-name".to_owned(), "karem.dulook".to_owned()]);
+            command.extend(["--app-name".to_owned(), "deyaxshami.dulook".to_owned()]);
         }
         command.extend(["-u", "normal", "-t", "8000", "-g", "☾"].map(str::to_owned));
         command.extend([title.to_owned(), body.to_owned()]);
@@ -498,7 +498,7 @@ impl Service {
                 "--exec".to_owned(),
                 format!("{omarchy}/bin/omarchy-shell"),
                 "-q".to_owned(),
-                "karem.dulook".to_owned(),
+                "deyaxshami.dulook".to_owned(),
                 "stopPrayerSound".to_owned(),
                 key.to_owned(),
             ]);
@@ -546,7 +546,7 @@ impl Service {
         let mut command = Command::new("/usr/bin/mpv");
         command
             .args(["--no-config", "--no-load-scripts", "--no-video", "--no-terminal", "--really-quiet"])
-            .arg("--audio-client-name=karem.dulook")
+            .arg("--audio-client-name=deyaxshami.dulook")
             .arg(format!("--volume={}", self.settings().sound_volume))
             .arg("--")
             .arg(&path)

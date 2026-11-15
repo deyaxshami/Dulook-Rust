@@ -39,7 +39,7 @@ and the calculation explained by [IslamWeb](https://www.islamweb.net/en/fatwa/37
 
 ## Requirements
 
-- Omarchy Shell on x86_64 Linux (the committed `bin/dulook` is an x86_64 build)
+- Omarchy Shell on x86_64 or aarch64 (ARM) Linux
 - `mpv` for Adhan playback and `curl` for online Hadith, calendars and map tiles, at `/usr/bin`
 
 ## Install
@@ -48,7 +48,8 @@ and the calculation explained by [IslamWeb](https://www.islamweb.net/en/fatwa/37
 omarchy plugin add https://github.com/deyaxshami/Dulook-Rust --enable
 ```
 
-No build step is needed; the prebuilt backend ships in `bin/dulook`.
+No build step is needed; prebuilt backends for x86_64 and aarch64 ship in
+`bin/`, and `bin/dulook` starts the one matching the machine.
 
 The repository root is the plugin root, so Git-managed installations can be
 updated with:
@@ -250,11 +251,16 @@ The QML files are a thin view. All logic (calendar parsing, scheduling,
 notifications, Adhan playback, Hadith requests, translations) lives in the
 Rust `dulook` backend under `src/`, which the shell starts as a child process
 and talks to over JSON lines on stdin/stdout. `omarchy plugin add` only clones
-the repository, so the stripped release binary is committed as `bin/dulook`.
-After changing anything under `src/`, rebuild the binary (needs a Rust
-toolchain), run the tests, and commit the updated `bin/dulook`:
+the repository, so stripped release binaries are committed as
+`bin/dulook-x86_64` and `bin/dulook-aarch64`; `bin/dulook` is a launcher that
+runs the one matching `uname -m`. After changing anything under `src/`,
+rebuild both binaries, run the tests, and commit the updated binaries. `make`
+cross-builds with [cargo-zigbuild](https://github.com/rust-cross/cargo-zigbuild),
+so it needs `zig` and a one-time setup:
 
 ```bash
+cargo install --locked cargo-zigbuild
+rustup target add x86_64-unknown-linux-gnu aarch64-unknown-linux-gnu
 make
 make test
 ```

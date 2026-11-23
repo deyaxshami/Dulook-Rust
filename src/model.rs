@@ -9,30 +9,33 @@ use serde::Serialize;
 
 use crate::jsutil::{js_trim, pad2};
 
-/// Daily times Dulook schedules: the five prayers plus Sunrise and Islamic midnight.
+/// Daily times Dulook schedules: the five prayers plus Sunrise, the sun's yellowing and
+/// Islamic midnight. Declaration order is [`Prayer::ALL`] order; settings index by it.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize)]
 pub enum Prayer {
     Fajr,
     Sunrise,
     Dhuhr,
     Asr,
+    Yellowing,
     Maghrib,
     Isha,
     Midnight,
 }
 
 impl Prayer {
-    pub const ALL: [Prayer; 7] = [
+    pub const ALL: [Prayer; 8] = [
         Prayer::Fajr,
         Prayer::Sunrise,
         Prayer::Dhuhr,
         Prayer::Asr,
+        Prayer::Yellowing,
         Prayer::Maghrib,
         Prayer::Isha,
         Prayer::Midnight,
     ];
 
-    /// Times a calendar row lists; Midnight is derived from two rows.
+    /// Times a calendar row lists; Yellowing and Midnight are derived.
     pub const ROW: [Prayer; 6] = [Prayer::Fajr, Prayer::Sunrise, Prayer::Dhuhr, Prayer::Asr, Prayer::Maghrib, Prayer::Isha];
 
     pub fn name(self) -> &'static str {
@@ -41,6 +44,7 @@ impl Prayer {
             Prayer::Sunrise => "Sunrise",
             Prayer::Dhuhr => "Dhuhr",
             Prayer::Asr => "Asr",
+            Prayer::Yellowing => "Yellowing",
             Prayer::Maghrib => "Maghrib",
             Prayer::Isha => "Isha",
             Prayer::Midnight => "Midnight",
@@ -51,13 +55,14 @@ impl Prayer {
         Prayer::ALL.into_iter().find(|p| p.name() == name)
     }
 
-    /// False for Sunrise and Midnight, which get no Adhan and are not called prayers.
+    /// False for Sunrise, Yellowing and Midnight, which get no Adhan and are not called prayers.
     pub fn is_prayer(self) -> bool {
-        !matches!(self, Prayer::Sunrise | Prayer::Midnight)
+        !matches!(self, Prayer::Sunrise | Prayer::Yellowing | Prayer::Midnight)
     }
 
-    fn index(self) -> usize {
-        self as usize
+    /// Position in a calendar row ([`Prayer::ROW`]); `None` for the derived Yellowing and Midnight.
+    fn row_index(self) -> Option<usize> {
+        Prayer::ROW.iter().position(|&p| p == self)
     }
 }
 
@@ -66,15 +71,17 @@ impl Prayer {
 pub struct PrayerTimes(pub [String; 6]);
 
 impl PrayerTimes {
-    /// Panics for `Prayer::Midnight`, which no row lists.
+    /// Panics for `Prayer::Yellowing` and `Prayer::Midnight`, which no row lists.
     pub fn get(&self, prayer: Prayer) -> &str {
-        &self.0[prayer.index()]
+        &self.0[prayer.row_index().expect("Yellowing and Midnight are not calendar columns")]
     }
 }
 
 #[derive(Clone, Debug, Default)]
 pub struct Calendar {
     pub dates: BTreeMap<String, PrayerTimes>,
+    /// Latitude estimated from the rows' day lengths; see `estimate_latitude`.
+    pub latitude: Option<f64>,
 }
 
 impl Calendar {
@@ -194,6 +201,67 @@ pub fn minute_of_day(time: &str) -> u32 {
     hour * 60 + minute
 }
 
+/// Altitude of the sun's centre at sunrise/sunset: refraction plus the solar semi-diameter.
+const SUNSET_ALTITUDE_DEG: f64 = -0.833;
+/// Altitude at which the sun yellows: where it stands 15 minutes before sunset at Qassim
+/// (26.33°N) at the equinox, the Saudi-latitude estimate of Dr. Abdullah Al-Misnid.
+const YELLOWING_ALTITUDE_DEG: f64 = 2.5;
+/// Rows closer to an equinox say almost nothing about latitude through their day length.
+const MIN_FIT_DECLINATION_DEG: f64 = 10.0;
+
+/// Solar declination in degrees at noon of `key` (U.S. Naval Observatory approximation).
+fn declination(key: &str) -> Option<f64> {
+    let d = (date_from_key(key)? - NaiveDate::from_ymd_opt(2000, 1, 1)?).num_days() as f64;
+    let g = (357.529 + 0.98560028 * d).to_radians();
+    let q = 280.459 + 0.98564736 * d;
+    let l = (q + 1.915 * g.sin() + 0.020 * (2.0 * g).sin()).to_radians();
+    let e = (23.439 - 0.00000036 * d).to_radians();
+    Some((e.sin() * l.sin()).asin().to_degrees())
+}
+
+/// Hour angle in degrees at which the sun's centre stands at `altitude`; `None` when it never does that day.
+fn hour_angle(altitude: f64, latitude: f64, declination: f64) -> Option<f64> {
+    let (alt, lat, dec) = (altitude.to_radians(), latitude.to_radians(), declination.to_radians());
+    let cos = (alt.sin() - lat.sin() * dec.sin()) / (lat.cos() * dec.cos());
+    (-1.0..=1.0).contains(&cos).then(|| cos.acos().to_degrees())
+}
+
+/// Latitude in degrees that best explains the rows' Sunrise→Maghrib day lengths; `None`
+/// when no row is at least `MIN_FIT_DECLINATION_DEG` from an equinox.
+fn estimate_latitude(dates: &BTreeMap<String, PrayerTimes>) -> Option<f64> {
+    let samples: Vec<(f64, f64)> = dates
+        .iter()
+        .filter_map(|(key, row)| {
+            let dec = declination(key)?;
+            let length = minute_of_day(row.get(Prayer::Maghrib)) as f64 - minute_of_day(row.get(Prayer::Sunrise)) as f64;
+            (dec.abs() >= MIN_FIT_DECLINATION_DEG).then_some((dec, length))
+        })
+        .collect();
+    if samples.is_empty() {
+        return None;
+    }
+    // A day spans twice the sunset hour angle, and each degree of it is 4 minutes.
+    let error = |latitude: f64| {
+        samples.iter().try_fold(0.0, |sum, &(dec, length)| {
+            hour_angle(SUNSET_ALTITUDE_DEG, latitude, dec).map(|h| sum + (8.0 * h - length).powi(2))
+        })
+        .unwrap_or(f64::INFINITY)
+    };
+    let best_of = |candidates: &mut dyn Iterator<Item = f64>| {
+        let mut best = (f64::NAN, f64::INFINITY);
+        for latitude in candidates {
+            let err = error(latitude);
+            if err < best.1 {
+                best = (latitude, err);
+            }
+        }
+        best.0
+    };
+    let coarse = best_of(&mut (-65..=65).map(f64::from));
+    let fine = best_of(&mut (0..=200).map(|i| coarse - 1.0 + f64::from(i) * 0.01));
+    (!fine.is_nan()).then_some(fine)
+}
+
 fn validate_prayer_order(prayers: &PrayerTimes, key: &str) -> Result<(), String> {
     let invalid = || format!("Invalid prayer order: {key}");
     let mut previous = minute_of_day(prayers.get(Prayer::Fajr));
@@ -262,6 +330,7 @@ pub fn parse_calendar(csv: &str) -> Result<Calendar, String> {
             return Err(format!("Invalid overnight Isha: {key}"));
         }
     }
+    calendar.latitude = estimate_latitude(&calendar.dates);
     Ok(calendar)
 }
 
@@ -276,6 +345,7 @@ pub fn merge_calendars(calendars: impl IntoIterator<Item = Calendar>) -> Result<
             merged.dates.insert(key, prayers);
         }
     }
+    merged.latitude = estimate_latitude(&merged.dates);
     Ok(merged)
 }
 
@@ -419,13 +489,43 @@ pub fn midnight_event(calendar: &Calendar, night_date: &str) -> Option<PrayerEve
     })
 }
 
-/// Every time of `key` in [`Prayer::ALL`] order; Midnight only when the next day's row exists.
+/// When the sun yellows on `key` (the end of the chosen Asr time): the sun's centre at
+/// `YELLOWING_ALTITUDE_DEG`, measured from solar noon (midway between Sunrise and Maghrib),
+/// truncated to the minute. `None` without a latitude, when the sun never gets that high,
+/// or when the result is not strictly between Asr and Maghrib.
+fn yellowing_event(latitude: Option<f64>, key: &str, row: &[PrayerEvent]) -> Option<PrayerEvent> {
+    let find = |prayer: Prayer| row.iter().find(|event| event.name == prayer);
+    let (sunrise, asr, maghrib) = (find(Prayer::Sunrise)?, find(Prayer::Asr)?, find(Prayer::Maghrib)?);
+    let hours = hour_angle(YELLOWING_ALTITUDE_DEG, latitude?, declination(key)?)?;
+    let noon = sunrise.timestamp + (maghrib.timestamp - sunrise.timestamp) / 2;
+    // One degree of hour angle is 4 minutes.
+    let middle = noon + (hours * 240_000.0) as i64;
+    let timestamp = middle - middle.rem_euclid(60_000);
+    if !(asr.timestamp < timestamp && timestamp < maghrib.timestamp) {
+        return None;
+    }
+    let time = Local.timestamp_millis_opt(timestamp).single()?.format("%H:%M").to_string();
+    Some(PrayerEvent {
+        key: format!("{key}|Yellowing"),
+        prayer_date: key.to_owned(),
+        name: Prayer::Yellowing,
+        time,
+        timestamp,
+    })
+}
+
+/// Every time of `key` in [`Prayer::ALL`] order; Yellowing only when computable, Midnight
+/// only when the next day's row exists.
 pub fn day_events(calendar: &Calendar, key: &str) -> Vec<PrayerEvent> {
     let mut events = calendar
         .dates
         .get(key)
         .and_then(|prayers| events_for_row(key, prayers).ok())
         .unwrap_or_default();
+    if let Some(yellowing) = yellowing_event(calendar.latitude, key, &events) {
+        let at = events.iter().position(|event| event.name == Prayer::Maghrib).unwrap_or(events.len());
+        events.insert(at, yellowing);
+    }
     events.extend(midnight_event(calendar, key));
     events
 }

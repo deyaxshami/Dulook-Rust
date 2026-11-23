@@ -1077,7 +1077,7 @@ Panel {
               columnSpacing: Style.spacing.sm
               rowSpacing: Style.spacing.sm
               Repeater {
-                model: ["Fajr", "Sunrise", "Dhuhr", "Asr", "Maghrib", "Isha", "Midnight"]
+                model: ["Fajr", "Sunrise", "Dhuhr", "Asr", "Yellowing", "Maghrib", "Isha", "Midnight"]
                 Toggle {
                   required property string modelData
                   width: (prayerNotificationGrid.width - prayerNotificationGrid.columnSpacing) / 2
@@ -1108,7 +1108,7 @@ Panel {
               columnSpacing: Style.spacing.sm
               rowSpacing: Style.spacing.sm
               Repeater {
-                model: ["Fajr", "Sunrise", "Dhuhr", "Asr", "Maghrib", "Isha", "Midnight"]
+                model: ["Fajr", "Sunrise", "Dhuhr", "Asr", "Yellowing", "Maghrib", "Isha", "Midnight"]
                 Toggle {
                   required property string modelData
                   width: (prayerReminderGrid.width - prayerReminderGrid.columnSpacing) / 2

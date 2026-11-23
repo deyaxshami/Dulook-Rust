@@ -122,7 +122,7 @@ fn computes_islamic_midnight_halfway_from_maghrib_to_the_next_fajr() {
     assert_eq!(midnight.timestamp, local_ms(2026, 6, 2, 0, 29, 0));
     assert_eq!(midnight.prayer_date, "2026-06-01");
     let last_day = model::day_events(&calendar, "2026-06-03");
-    assert_eq!(last_day.len(), 6);
+    assert_eq!(last_day.len(), 7);
     assert!(last_day.iter().all(|e| e.name != Prayer::Midnight));
 }
 
@@ -131,6 +131,47 @@ fn counts_down_to_midnight_after_isha() {
     let calendar = model::parse_calendar(ENGLISH_CSV).unwrap();
     let next = model::snapshot(&calendar, local_ms(2026, 6, 2, 0, 10, 30)).next.unwrap();
     assert_eq!(next.name, Prayer::Midnight);
+    assert_eq!(next.prayer_date, "2026-06-01");
+}
+
+const EQUINOX_ONLY_CSV: &str = "Date,Fajr,Sunrise,Dhuhr,Asr,Maghrib,Isha\n20/03/2026,05:00,06:00,12:00,15:00,18:00,19:30";
+
+fn yellowing_time(calendar: &Calendar, key: &str) -> String {
+    let events = model::day_events(calendar, key);
+    let at = events.iter().position(|e| e.name == Prayer::Yellowing).unwrap();
+    assert!(events[at - 1].name == Prayer::Asr && events[at + 1].name == Prayer::Maghrib);
+    assert!(events[at - 1].timestamp < events[at].timestamp && events[at].timestamp < events[at + 1].timestamp);
+    events[at].time.clone()
+}
+
+#[test]
+fn estimates_calendar_latitude_from_day_lengths() {
+    let nordhorn = bundled_calendar("nordhorn", 2026).latitude.unwrap();
+    assert!((nordhorn - 52.43).abs() < 0.2, "{nordhorn}");
+    let cairo = bundled_calendar("cairo", 2026).latitude.unwrap();
+    assert!((cairo - 30.04).abs() < 0.2, "{cairo}");
+    assert_eq!(model::parse_calendar(EQUINOX_ONLY_CSV).unwrap().latitude, None);
+}
+
+#[test]
+fn yellows_at_two_and_a_half_degrees_for_the_calendars_latitude() {
+    assert_eq!(yellowing_time(&bundled_calendar("nordhorn", 2026), "2026-11-23"), "16:01");
+    assert_eq!(yellowing_time(&bundled_calendar("cairo", 2026), "2026-11-23"), "16:39");
+    assert_eq!(yellowing_time(&model::parse_calendar(ENGLISH_CSV).unwrap(), "2026-06-01"), "21:29");
+}
+
+#[test]
+fn skips_yellowing_without_a_latitude() {
+    let calendar = model::parse_calendar(EQUINOX_ONLY_CSV).unwrap();
+    let events = model::day_events(&calendar, "2026-03-20");
+    assert_eq!(events.iter().map(|e| e.name).collect::<Vec<_>>(), Prayer::ROW);
+}
+
+#[test]
+fn counts_down_to_yellowing_after_asr() {
+    let calendar = model::parse_calendar(ENGLISH_CSV).unwrap();
+    let next = model::snapshot(&calendar, local_ms(2026, 6, 1, 18, 0, 0)).next.unwrap();
+    assert_eq!(next.name, Prayer::Yellowing);
     assert_eq!(next.prayer_date, "2026-06-01");
 }
 
@@ -228,6 +269,7 @@ fn translation_dictionaries_have_complete_matching_keys() {
     assert_eq!(translations::text("stopAdhanHint", Lang::En), "Left-click to stop the Adhan.");
     assert_eq!(translations::interpolate("prayerReminderBody", Lang::En, &[("prayer", "Fajr")]), "Fajr begins in 15 minutes.");
     assert_eq!(translations::interpolate("timeBeginsBody", Lang::En, &[("time", "Sunrise")]), "Sunrise has begun.");
+    assert_eq!(translations::text("Yellowing", Lang::Ar), "الاصفرار");
     assert_eq!(translations::text("lastThirdBody", Lang::En), "The last third of the night has begun.");
     assert_eq!(
         translations::interpolate("countdownToPrayer", Lang::En, &[("countdown", "02:30:30"), ("prayer", "Fajr")]),

@@ -880,7 +880,11 @@ impl Service {
     fn send_prayer_notification(&self, prayer: Prayer, key: &str, adhan_started: bool) {
         if !prayer.is_prayer() {
             let name = self.tr(prayer.name());
-            let body = translations::interpolate("timeBeginsBody", self.lang(), &[("time", name)]);
+            let body = if prayer == Prayer::Yellowing {
+                self.tr("yellowingBody").to_owned()
+            } else {
+                translations::interpolate("timeBeginsBody", self.lang(), &[("time", name)])
+            };
             exec_detached(&self.notification_command(name, &body, None));
             return;
         }
@@ -898,7 +902,11 @@ impl Service {
 
     fn send_reminder_notification(&self, prayer: Prayer) {
         if !prayer.is_prayer() {
-            let body = translations::interpolate("timeReminderBody", self.lang(), &[("time", self.tr(prayer.name()))]);
+            let body = if prayer == Prayer::Yellowing {
+                self.tr("yellowingReminderBody").to_owned()
+            } else {
+                translations::interpolate("timeReminderBody", self.lang(), &[("time", self.tr(prayer.name()))])
+            };
             exec_detached(&self.notification_command(self.tr("timeReminderTitle"), &body, None));
             return;
         }
@@ -1158,7 +1166,7 @@ impl Service {
             .unwrap_or_else(|| "custom".to_owned())
     }
 
-    fn per_prayer(flags: &[bool; 7]) -> Value {
+    fn per_prayer(flags: &[bool; 8]) -> Value {
         Value::Object(Prayer::ALL.iter().map(|p| (p.name().to_owned(), Value::Bool(flags[*p as usize]))).collect())
     }
 

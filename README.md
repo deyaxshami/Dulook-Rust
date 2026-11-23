@@ -18,7 +18,7 @@ access is used only to request Arabic and English Hadith; a reviewed set of
 - Optional custom CSV with automatic reload on file changes
 - Four bundled Adhan recordings
 - Native prayer notifications on every monitor, including a reminder 15 minutes before each prayer
-- Sunrise and Islamic midnight shown, counted down to, and notified like prayers, without the Adhan
+- Sunrise, the sun's yellowing (end of the chosen Asr time), and Islamic midnight shown, counted down to, and notified like prayers, without the Adhan
 - A notification when the last third of the night begins
 - Independent prayer-time, 15-minute, last-third, per-prayer, and DND controls
 - Adhan dropdown with four bundled recordings, or your own local MP3, played through `mpv`
@@ -37,6 +37,23 @@ last third begins = Maghrib + 2/3 * (next Fajr - Maghrib)
 
 This follows the description in [Sahih al-Bukhari 1145](https://sunnah.com/bukhari:1145)
 and the calculation explained by [IslamWeb](https://www.islamweb.net/en/fatwa/376972/determining-the-last-third-part-of-the-night).
+
+## Yellowing of the Sun
+
+Yellowing (اصفرار الشمس) ends the chosen time for Asr. Salafi scholars note that
+it varies with the season and latitude, and put it about 15 minutes before
+sunset in Saudi latitudes: Dr. Abdullah Al-Misnid of Qassim University
+(almisnid.com, article 343) and IslamQA ([175386](https://islamqa.info/ar/answers/175386),
+[67911](https://islamqa.info/ar/answers/67911)).
+
+Dulook turns that into a solar altitude: 15 minutes before sunset at Qassim
+(26.33°N) at the equinox the sun's centre stands 2.5° high. Yellowing is when
+the sun descends to 2.5° at the calendar's own latitude, so it moves with place
+and season (about 17–18 minutes before Maghrib in Cairo and 25–32 in
+Nordhorn). Calendars carry no coordinates, so the latitude is fitted from the
+calendar's own Sunrise→Maghrib day lengths, and solar noon is taken as the
+midpoint of Sunrise and Maghrib. A calendar covering only the weeks around an
+equinox cannot be fitted and shows no Yellowing.
 
 ## Islamic Midnight
 
@@ -230,10 +247,10 @@ the following civil day. Prayer times are displayed using a 12-hour clock with
 
 ## Notifications And Sound
 
-Notifications are enabled for all five prayers, Sunrise, and Midnight by
-default and use Omarchy's native normal-duration popup. One logical
+Notifications are enabled for all five prayers, Sunrise, Yellowing, and
+Midnight by default and use Omarchy's native normal-duration popup. One logical
 notification is sent and Omarchy mirrors it to every monitor. DND is respected
-unless bypass is enabled. Sunrise and Midnight never play the Adhan.
+unless bypass is enabled. Sunrise, Yellowing, and Midnight never play the Adhan.
 
 Adhan audio is enabled by default with `adans/adan_04.mp3`. Pick one of the
 bundled recordings (Adhan 1–4, from `adans/`) in the Settings dropdown, or

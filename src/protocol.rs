@@ -31,6 +31,8 @@ pub enum Command {
     StopPrayerSound {
         key: String,
     },
+    /// The user clicked the blinking bar label.
+    AcknowledgeAlert,
     #[serde(rename_all = "camelCase")]
     SuggestPlaces {
         field: SuggestField,

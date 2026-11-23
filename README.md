@@ -260,6 +260,11 @@ sink and volume, and never stops unrelated media players. Left-click a
 prayer-time notification to stop its playing Adhan. Right-click dismisses the
 notification without stopping the audio.
 
+The bar label blinks red when Yellowing or Midnight begins and 15 minutes
+before each of the five prayers, regardless of the notification switches and
+DND. It stops when the next time begins (Maghrib, Fajr, or the prayer itself)
+or when you click the label; that click only stops the blinking.
+
 ## Hadith Data
 
 Runtime Hadith requests use the pinned `fawazahmed0/hadith-api` revision listed

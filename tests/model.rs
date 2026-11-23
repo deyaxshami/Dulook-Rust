@@ -176,6 +176,20 @@ fn counts_down_to_yellowing_after_asr() {
 }
 
 #[test]
+fn follows_each_time_with_the_next_one() {
+    let calendar = model::parse_calendar(ENGLISH_CSV).unwrap();
+    let events = model::day_events(&calendar, "2026-06-01");
+    let following = |name: Prayer| {
+        let event = events.iter().find(|e| e.name == name).unwrap();
+        model::following_event(&calendar, event).unwrap()
+    };
+    let after_yellowing = following(Prayer::Yellowing);
+    assert_eq!((after_yellowing.name, after_yellowing.time.as_str()), (Prayer::Maghrib, "22:00"));
+    let after_midnight = following(Prayer::Midnight);
+    assert_eq!((after_midnight.name, after_midnight.prayer_date.as_str()), (Prayer::Fajr, "2026-06-02"));
+}
+
+#[test]
 fn notifies_sunrise_like_a_prayer() {
     let calendar = model::parse_calendar(ENGLISH_CSV).unwrap();
     let now = local_ms(2026, 6, 1, 5, 0, 30);

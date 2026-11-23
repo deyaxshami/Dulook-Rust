@@ -379,7 +379,7 @@ Panel {
     open: root.opened
     centerOnBar: true
     focusTarget: keyCatcher
-    contentWidth: popup.fittedContentWidth(Style.space(570))
+    contentWidth: popup.fittedContentWidth(Style.space(660))
     contentHeight: popup.fittedContentHeight(root.settingsView ? settingsColumn.implicitHeight : mainColumn.implicitHeight,
       popup.screenH * 0.8)
 

@@ -514,6 +514,11 @@ fn yellowing_event(latitude: Option<f64>, key: &str, row: &[PrayerEvent]) -> Opt
     })
 }
 
+/// The first time after `event` (e.g. Maghrib after Yellowing, the next Fajr after Midnight).
+pub fn following_event(calendar: &Calendar, event: &PrayerEvent) -> Option<PrayerEvent> {
+    events_around(calendar, event.timestamp).into_iter().find(|next| next.timestamp > event.timestamp)
+}
+
 /// Every time of `key` in [`Prayer::ALL`] order; Yellowing only when computable, Midnight
 /// only when the next day's row exists.
 pub fn day_events(calendar: &Calendar, key: &str) -> Vec<PrayerEvent> {

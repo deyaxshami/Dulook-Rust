@@ -79,6 +79,7 @@ struct StateFile {
     last_reminder_key: String,
     #[serde(deserialize_with = "lenient_string")]
     last_third_alert_key: String,
+    blink_until: Option<i64>,
 }
 
 pub struct Paths {
@@ -245,6 +246,9 @@ pub struct Service {
     last_alert_key: String,
     last_reminder_key: String,
     last_third_alert_key: String,
+    /// When the bar stops blinking on its own; `None` when it does not blink.
+    /// Set when Yellowing or Midnight begins and 15 minutes before each prayer; a click clears it.
+    blink_until: Option<i64>,
 
     audio: Option<Child>,
     stopping_sound: bool,
@@ -299,6 +303,7 @@ impl Service {
             last_alert_key: String::new(),
             last_reminder_key: String::new(),
             last_third_alert_key: String::new(),
+            blink_until: None,
             audio: None,
             stopping_sound: false,
             playing_alert_key: String::new(),
@@ -354,6 +359,11 @@ impl Service {
             }
             Cmd::StopSound => self.stop_sound(),
             Cmd::StopPrayerSound { key } => self.stop_prayer_sound(&key),
+            Cmd::AcknowledgeAlert => {
+                if self.blink_until.take().is_some() {
+                    self.save_state();
+                }
+            }
             Cmd::SuggestPlaces { field, country, city, zip, street, house_number } => {
                 let query = OnlineQuery { country, city, zip, street, house_number, ..OnlineQuery::default() };
                 self.suggest_places(field, query);
@@ -806,6 +816,10 @@ impl Service {
                 self.trigger_last_third_reminder(&event.key);
             }
         }
+        if self.blink_until.is_some_and(|until| now >= until) {
+            self.blink_until = None;
+            self.save_state();
+        }
         self.previous_tick = now;
     }
 
@@ -816,6 +830,10 @@ impl Service {
             return;
         }
         self.last_alert_key = event.key.clone();
+        if matches!(event.name, Prayer::Yellowing | Prayer::Midnight) {
+            let following = self.calendar.as_ref().and_then(|calendar| model::following_event(calendar, event));
+            self.blink_until = Some(following.map_or(i64::MAX, |next| next.timestamp));
+        }
         self.save_state();
         let settings = self.settings();
         if !settings.notify[event.name as usize] {
@@ -834,6 +852,9 @@ impl Service {
             return;
         }
         self.last_reminder_key = event.key.clone();
+        if event.name.is_prayer() {
+            self.blink_until = Some(event.timestamp);
+        }
         self.save_state();
         let settings = self.settings();
         if settings.prayer_reminders_enabled && settings.remind[event.name as usize] {
@@ -1117,6 +1138,7 @@ impl Service {
             self.last_alert_key = state.last_alert_key;
             self.last_reminder_key = state.last_reminder_key;
             self.last_third_alert_key = state.last_third_alert_key;
+            self.blink_until = state.blink_until;
         }
     }
 
@@ -1126,6 +1148,7 @@ impl Service {
             last_alert_key: self.last_alert_key.clone(),
             last_reminder_key: self.last_reminder_key.clone(),
             last_third_alert_key: self.last_third_alert_key.clone(),
+            blink_until: self.blink_until,
         };
         match serde_json::to_string(&state) {
             Ok(text) => write_atomic(&self.paths.state_file, &(text + "\n")),
@@ -1327,6 +1350,7 @@ impl Service {
             "timezoneLabel": self.timezone_label(),
             "nextPrayer": next,
             "prayerRows": rows,
+            "alerting": self.blink_until.is_some(),
         })
     }
 }

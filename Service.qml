@@ -87,6 +87,7 @@ Item {
   readonly property string timezoneLabel: backendTick.timezoneLabel || ""
   readonly property var nextPrayer: backendTick.nextPrayer || null
   readonly property var prayerRows: backendTick.prayerRows || []
+  readonly property bool alerting: backendTick.alerting === true
 
   function tr(key) {
     var strings = backendState.strings
@@ -111,6 +112,7 @@ Item {
   function testSound() { send({ cmd: "testSound" }) }
   function stopSound() { send({ cmd: "stopSound" }) }
   function stopPrayerSound(alertKey) { send({ cmd: "stopPrayerSound", key: String(alertKey) }) }
+  function acknowledgeAlert() { send({ cmd: "acknowledgeAlert" }) }
   function suggestPlaces(field, country, city, zip, street, houseNumber) {
     send({ cmd: "suggestPlaces", field: String(field), country: String(country), city: String(city),
       zip: String(zip), street: String(street), houseNumber: String(houseNumber) })
@@ -192,6 +194,7 @@ Item {
     function testNotification(): void { root.testNotification() }
     function stopPrayerSound(alertKey: string): void { root.stopPrayerSound(alertKey) }
     function stopSound(): void { root.stopSound() }
+    function acknowledgeAlert(): void { root.acknowledgeAlert() }
     function status(): string {
       return JSON.stringify({
         language: root.language,
@@ -205,6 +208,7 @@ Item {
         prayerRows: root.prayerRows,
         nextPrayer: root.nextPrayer,
         countdown: root.countdown,
+        alerting: root.alerting,
         prayerTimeNotificationsEnabled: root.prayerTimeNotificationsEnabled,
         prayerRemindersEnabled: root.prayerRemindersEnabled,
         lastThirdReminderEnabled: root.lastThirdReminderEnabled,

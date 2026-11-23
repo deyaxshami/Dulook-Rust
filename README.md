@@ -153,9 +153,10 @@ existed keep their custom CSV.
 
 ### Browse the prayer calendar
 
-Open the Dulook panel and click **▦ Prayer calendar** beside Settings. The
-window opens on the current Gregorian month. Switch to **Hijri** and select
-**Ramadan**, the ninth month, to plan for any covered Ramadan.
+Open the Dulook panel and click **▦ Prayer calendar** beside Settings. On
+Hyprland, the calendar opens as a centered floating window, sized to fit
+the current display. It starts on the current Gregorian month. Switch to
+**Hijri** and select **Ramadan**, the ninth month, to plan for any covered Ramadan.
 
 **Year overview** shows all 12 months and each month's covered date range in
 the other calendar. Select a covered month to see both dates and all eight

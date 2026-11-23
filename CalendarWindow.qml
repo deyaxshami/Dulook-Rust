@@ -2,6 +2,7 @@ import QtQuick
 import QtQuick.Controls as Controls
 import QtQuick.Layouts
 import Quickshell
+import Quickshell.Hyprland
 import qs.Commons
 import qs.Commons as Commons
 import qs.Ui
@@ -11,6 +12,8 @@ FloatingWindow {
 
   required property var service
   property bool opened: false
+  property string openingTitle: ""
+  property var openingScreen: null
   property string basis: "gregorian"
   property bool yearView: false
   property var selections: ({ gregorian: null, hijri: null })
@@ -34,11 +37,16 @@ FloatingWindow {
   readonly property int rowHeight: Style.space(32)
   readonly property int headingHeight: Style.space(48)
   readonly property string missing: "—"
+  readonly property int windowMargin: Style.space(24)
+
+  function fitToScreen(preferred, extent) {
+    return Math.max(1, Math.min(preferred, extent - 2 * windowMargin))
+  }
 
   title: tr("appName") + " — " + tr("calendar")
-  implicitWidth: 1120
-  implicitHeight: 700
-  minimumSize: Qt.size(600, 360)
+  implicitWidth: fitToScreen(2 * dateWidth + 8 * timeWidth + Style.space(80), openingScreen?.width ?? Infinity)
+  implicitHeight: fitToScreen(Style.space(700), openingScreen?.height ?? Infinity)
+  minimumSize: Qt.size(Math.min(600, implicitWidth), Math.min(360, implicitHeight))
   color: Commons.Color.popups.background
   visible: opened
   onClosed: opened = false
@@ -56,9 +64,47 @@ FloatingWindow {
     basis = "gregorian"
     yearView = false
     selections = { gregorian: null, hijri: null }
+    const monitor = Hyprland.focusedMonitor
+    openingScreen = Quickshell.screens.find(output => output.name === monitor?.name) ?? screen
+    openingTitle = title
     opened = true
     resetHorizontal()
     scheduleOpen()
+  }
+
+  // A Quickshell FloatingWindow is an xdg toplevel, so Hyprland can tile it
+  // unless asked to float. Place our mapped window, never the active window.
+  Connections {
+    target: Hyprland
+    enabled: root.opened
+    function onRawEvent(event) {
+      if (event.name !== "openwindow") return
+      const parts = event.parse(4)
+      if (parts[2] !== Quickshell.appId || (parts[3] !== root.title && parts[3] !== root.openingTitle)
+          || !/^[0-9a-f]+$/i.test(parts[0])) return
+
+      const selector = "address:0x" + parts[0]
+      const width = root.implicitWidth
+      const height = root.implicitHeight
+      if (Hyprland.usingLua) {
+        Hyprland.dispatch(`(function()
+          local window = hl.get_window("${selector}")
+          if not window or window.pid ~= ${Quickshell.processId} then return function() end end
+          hl.dispatch(hl.dsp.window.float({ action = "on", window = window }))
+          hl.dispatch(hl.dsp.window.resize({ x = ${width}, y = ${height}, relative = false, window = window }))
+          return hl.dsp.window.center({ window = window })
+        end)()`)
+      } else {
+        Hyprland.dispatch("setfloating " + selector)
+        Hyprland.dispatch(`resizewindowpixel exact ${width} ${height},${selector}`)
+        const screen = root.openingScreen
+        if (screen) {
+          const x = Math.round(screen.x + (screen.width - width) / 2)
+          const y = Math.round(screen.y + (screen.height - height) / 2)
+          Hyprland.dispatch(`movewindowpixel exact ${x} ${y},${selector}`)
+        }
+      }
+    }
   }
 
   function clearResult() {

@@ -202,6 +202,12 @@ FloatingWindow {
     return text ? "\u202a" + digits(text) + "\u202c" : missing
   }
 
+  function timeText(time) {
+    if (!time) return missing
+    const hour = Number(time.slice(0, 2))
+    return numeric((hour % 12 || 12) + time.slice(2) + (hour < 12 ? " AM" : " PM"))
+  }
+
   function dateText(iso) {
     return iso.slice(8, 10) + "/" + iso.slice(5, 7) + "/" + iso.slice(0, 4)
   }
@@ -238,7 +244,7 @@ FloatingWindow {
   function dayCells(day) {
     const dates = [day.gregorianDate, day.hijriDate]
     if (basis === "hijri") dates.reverse()
-    return dates.map(date => numeric(date ? dateText(date) : null)).concat(day.times.map(time => numeric(time)))
+    return dates.map(date => numeric(date ? dateText(date) : null)).concat(day.times.map(time => timeText(time)))
   }
 
   Connections {

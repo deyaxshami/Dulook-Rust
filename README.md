@@ -160,7 +160,7 @@ the current display. It starts on the current Gregorian month. Switch to
 
 **Year overview** shows all 12 months and each month's covered date range in
 the other calendar. Select a covered month to see both dates and all eight
-times, including Yellowing and Islamic Midnight, in 24-hour system-local time.
+times, including Yellowing and Islamic Midnight, in 12-hour system-local time with AM/PM.
 The browser reads every available year of the selected source without
 downloading anything or changing the alert schedule. Missing dates and times
 are not estimated. Hijri browsing is unavailable if the source has no valid
@@ -269,8 +269,8 @@ Arabic-Indic digits. Other columns are ignored.
 
 Times may use 24-hour `HH:mm` or 12-hour `hh:mm am/pm` notation. A time after
 midnight that appears after a later evening prayer is treated as belonging to
-the following civil day. The panel displays times using a 12-hour clock with
-`AM`/`PM`; the calendar table uses a 24-hour clock.
+the following civil day. The panel and calendar table display times using a
+12-hour clock with `AM`/`PM`.
 
 ## Notifications And Sound
 

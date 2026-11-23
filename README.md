@@ -18,6 +18,7 @@ access is used only to request Arabic and English Hadith; a reviewed set of
 - Optional custom CSV with automatic reload on file changes
 - Four bundled Adhan recordings
 - Native prayer notifications on every monitor, including a reminder 15 minutes before each prayer
+- Sunrise and Islamic midnight shown, counted down to, and notified like prayers, without the Adhan
 - A notification when the last third of the night begins
 - Independent prayer-time, 15-minute, last-third, per-prayer, and DND controls
 - Adhan dropdown with four bundled recordings, or your own local MP3, played through `mpv`
@@ -36,6 +37,17 @@ last third begins = Maghrib + 2/3 * (next Fajr - Maghrib)
 
 This follows the description in [Sahih al-Bukhari 1145](https://sunnah.com/bukhari:1145)
 and the calculation explained by [IslamWeb](https://www.islamweb.net/en/fatwa/376972/determining-the-last-third-part-of-the-night).
+
+## Islamic Midnight
+
+Midnight is the midpoint of the same night, truncated to the minute:
+
+```text
+midnight = Maghrib + 1/2 * (next Fajr - Maghrib)
+```
+
+After Isha, the panel keeps showing that day until midnight passes. On a
+calendar's last day, which has no next Fajr, Midnight is not shown.
 
 ## Requirements
 
@@ -204,6 +216,7 @@ Required columns can use English or Arabic headers:
 | --- | --- |
 | `Date` | `التاريخ` |
 | `Fajr` | `الفجر` |
+| `Sunrise` | `الشروق` |
 | `Dhuhr` | `الظهر` |
 | `Asr` | `العصر` |
 | `Maghrib` | `المغرب` |
@@ -217,9 +230,10 @@ the following civil day. Prayer times are displayed using a 12-hour clock with
 
 ## Notifications And Sound
 
-Notifications are enabled for all five prayers by default and use Omarchy's
-native normal-duration popup. One logical notification is sent and Omarchy
-mirrors it to every monitor. DND is respected unless bypass is enabled.
+Notifications are enabled for all five prayers, Sunrise, and Midnight by
+default and use Omarchy's native normal-duration popup. One logical
+notification is sent and Omarchy mirrors it to every monitor. DND is respected
+unless bypass is enabled. Sunrise and Midnight never play the Adhan.
 
 Adhan audio is enabled by default with `adans/adan_04.mp3`. Pick one of the
 bundled recordings (Adhan 1–4, from `adans/`) in the Settings dropdown, or

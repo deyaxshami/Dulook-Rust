@@ -17,7 +17,7 @@ use serde_json::{Map, Value, json};
 
 use crate::jsutil::{js_number, js_string, js_trim, localized_digits, now_ms, pad2, timezone_offset_minutes};
 use crate::locations;
-use crate::model::{self, Calendar, Prayer, PrayerEvent, PrayerTimes};
+use crate::model::{self, Calendar, Prayer, PrayerEvent};
 use crate::online::{self, DownloadError, LocationMode, LocationRequest, OnlineLocation, OnlineQuery, PlaceSuggestion, SuggestField};
 use crate::protocol::{Command as Cmd, Event};
 use crate::settings::{Settings, expand_path};
@@ -239,7 +239,7 @@ pub struct Service {
     calendar_files: Vec<(PathBuf, FileSignature)>,
     next_prayer: Option<PrayerEvent>,
     remaining_seconds: i64,
-    prayer_rows: Vec<(Prayer, String, String)>,
+    prayer_rows: Vec<PrayerEvent>,
     timezone_offset: i32,
     previous_tick: i64,
     last_alert_key: String,
@@ -783,13 +783,11 @@ impl Service {
         let Some(calendar) = self.calendar.as_ref() else { return };
         let snapshot = model::snapshot(calendar, now);
         let display_date = snapshot.next.as_ref().map_or_else(|| snapshot.date_key.clone(), |n| n.prayer_date.clone());
-        let display_prayers: Option<&PrayerTimes> =
-            calendar.dates.get(&display_date).or_else(|| calendar.dates.get(&snapshot.date_key));
-        self.prayer_rows = display_prayers
-            .map(|prayers| {
-                Prayer::ALL.iter().map(|&p| (p, prayers.get(p).to_owned(), display_date.clone())).collect()
-            })
-            .unwrap_or_default();
+        let mut rows = model::day_events(calendar, &display_date);
+        if rows.is_empty() {
+            rows = model::day_events(calendar, &snapshot.date_key);
+        }
+        self.prayer_rows = rows;
         self.remaining_seconds = snapshot.remaining_seconds;
         self.next_prayer = snapshot.next;
 
@@ -825,7 +823,7 @@ impl Service {
         }
         let wants_sound = settings.sound_enabled && (!self.dnd || settings.bypass_dnd);
         let notify = settings.prayer_time_notifications_enabled;
-        let adhan_started = wants_sound && self.play_sound(&event.key);
+        let adhan_started = wants_sound && event.name.is_prayer() && self.play_sound(&event.key);
         if notify {
             self.send_prayer_notification(event.name, &event.key, adhan_started);
         }
@@ -880,6 +878,12 @@ impl Service {
     }
 
     fn send_prayer_notification(&self, prayer: Prayer, key: &str, adhan_started: bool) {
+        if !prayer.is_prayer() {
+            let name = self.tr(prayer.name());
+            let body = translations::interpolate("timeBeginsBody", self.lang(), &[("time", name)]);
+            exec_detached(&self.notification_command(name, &body, None));
+            return;
+        }
         let mut body = self.prayer_body("notificationBody", prayer);
         if adhan_started {
             body.push(' ');
@@ -893,6 +897,11 @@ impl Service {
     }
 
     fn send_reminder_notification(&self, prayer: Prayer) {
+        if !prayer.is_prayer() {
+            let body = translations::interpolate("timeReminderBody", self.lang(), &[("time", self.tr(prayer.name()))]);
+            exec_detached(&self.notification_command(self.tr("timeReminderTitle"), &body, None));
+            return;
+        }
         let body = self.prayer_body("prayerReminderBody", prayer);
         exec_detached(&self.notification_command(self.tr("prayerReminderTitle"), &body, None));
     }
@@ -1149,7 +1158,7 @@ impl Service {
             .unwrap_or_else(|| "custom".to_owned())
     }
 
-    fn per_prayer(flags: &[bool; 5]) -> Value {
+    fn per_prayer(flags: &[bool; 7]) -> Value {
         Value::Object(Prayer::ALL.iter().map(|p| (p.name().to_owned(), Value::Bool(flags[*p as usize]))).collect())
     }
 
@@ -1284,6 +1293,7 @@ impl Service {
                 let mut value = serde_json::to_value(next).unwrap_or(Value::Null);
                 if let Value::Object(map) = &mut value {
                     map.insert("label".into(), json!(format!("{prayer} · {}", self.time_label(&next.time))));
+                    map.insert("isPrayer".into(), json!(next.name.is_prayer()));
                 }
                 (countdown, label, value)
             }
@@ -1292,13 +1302,13 @@ impl Service {
         let rows: Vec<Value> = self
             .prayer_rows
             .iter()
-            .map(|(prayer, time, date)| {
+            .map(|event| {
                 json!({
-                    "name": prayer.name(),
-                    "prayerDate": date,
-                    "time": time,
-                    "nameLabel": self.tr(prayer.name()),
-                    "timeLabel": self.time_label(time),
+                    "name": event.name.name(),
+                    "prayerDate": event.prayer_date,
+                    "time": event.time,
+                    "nameLabel": self.tr(event.name.name()),
+                    "timeLabel": self.time_label(&event.time),
                 })
             })
             .collect();

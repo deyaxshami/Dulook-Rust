@@ -449,7 +449,9 @@ Panel {
               Text {
                 textFormat: Text.PlainText
                 anchors.horizontalCenter: parent.horizontalCenter
-                text: root.service && root.service.calendarReady ? root.tr("nextPrayer") : root.tr("setup")
+                text: root.service && root.service.calendarReady
+                  ? (root.service.nextPrayer && root.service.nextPrayer.isPrayer === false ? root.tr("nextTime") : root.tr("nextPrayer"))
+                  : root.tr("setup")
                 color: Qt.darker(root.foreground, 1.35)
                 font.family: root.uiFont
                 font.pixelSize: Style.font.caption
@@ -492,13 +494,14 @@ Panel {
             width: parent.width
             spacing: Style.spacing.sm
             Repeater {
+              id: prayerTiles
               model: root.service ? root.service.prayerRows : []
               BorderSurface {
                 required property var modelData
                 readonly property bool selectedPrayer: root.service && root.service.nextPrayer
                   && modelData.name === root.service.nextPrayer.name
                   && modelData.prayerDate === root.service.nextPrayer.prayerDate
-                width: (prayerRow.width - prayerRow.spacing * 4) / 5
+                width: (prayerRow.width - prayerRow.spacing * (prayerTiles.count - 1)) / Math.max(prayerTiles.count, 1)
                 height: Style.space(68)
                 radius: Style.cornerRadius
                 color: selectedPrayer ? Style.selectedFillFor(root.foreground, Color.accent)
@@ -506,10 +509,14 @@ Panel {
                 borderSpec: Border.controlSpec(selectedPrayer ? "selected" : "normal", root.foreground, Color.accent)
                 Column {
                   anchors.centerIn: parent
+                  width: parent.width - Style.spacing.xs * 2
                   spacing: Style.spacing.xs
                   Text {
                     textFormat: Text.PlainText
-                    anchors.horizontalCenter: parent.horizontalCenter
+                    width: parent.width
+                    horizontalAlignment: Text.AlignHCenter
+                    fontSizeMode: Text.HorizontalFit
+                    minimumPixelSize: 8
                     text: modelData.nameLabel
                     color: selectedPrayer ? Color.accent : Qt.darker(root.foreground, 1.35)
                     font.family: root.uiFont
@@ -518,7 +525,10 @@ Panel {
                   }
                   Text {
                     textFormat: Text.PlainText
-                    anchors.horizontalCenter: parent.horizontalCenter
+                    width: parent.width
+                    horizontalAlignment: Text.AlignHCenter
+                    fontSizeMode: Text.HorizontalFit
+                    minimumPixelSize: 8
                     text: modelData.timeLabel
                     color: root.foreground
                     font.family: root.uiFont
@@ -1067,7 +1077,7 @@ Panel {
               columnSpacing: Style.spacing.sm
               rowSpacing: Style.spacing.sm
               Repeater {
-                model: ["Fajr", "Dhuhr", "Asr", "Maghrib", "Isha"]
+                model: ["Fajr", "Sunrise", "Dhuhr", "Asr", "Maghrib", "Isha", "Midnight"]
                 Toggle {
                   required property string modelData
                   width: (prayerNotificationGrid.width - prayerNotificationGrid.columnSpacing) / 2
@@ -1098,7 +1108,7 @@ Panel {
               columnSpacing: Style.spacing.sm
               rowSpacing: Style.spacing.sm
               Repeater {
-                model: ["Fajr", "Dhuhr", "Asr", "Maghrib", "Isha"]
+                model: ["Fajr", "Sunrise", "Dhuhr", "Asr", "Maghrib", "Isha", "Midnight"]
                 Toggle {
                   required property string modelData
                   width: (prayerReminderGrid.width - prayerReminderGrid.columnSpacing) / 2

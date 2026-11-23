@@ -9,25 +9,41 @@ use serde::Serialize;
 
 use crate::jsutil::{js_trim, pad2};
 
+/// Daily times Dulook schedules: the five prayers plus Sunrise and Islamic midnight.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Serialize)]
 pub enum Prayer {
     Fajr,
+    Sunrise,
     Dhuhr,
     Asr,
     Maghrib,
     Isha,
+    Midnight,
 }
 
 impl Prayer {
-    pub const ALL: [Prayer; 5] = [Prayer::Fajr, Prayer::Dhuhr, Prayer::Asr, Prayer::Maghrib, Prayer::Isha];
+    pub const ALL: [Prayer; 7] = [
+        Prayer::Fajr,
+        Prayer::Sunrise,
+        Prayer::Dhuhr,
+        Prayer::Asr,
+        Prayer::Maghrib,
+        Prayer::Isha,
+        Prayer::Midnight,
+    ];
+
+    /// Times a calendar row lists; Midnight is derived from two rows.
+    pub const ROW: [Prayer; 6] = [Prayer::Fajr, Prayer::Sunrise, Prayer::Dhuhr, Prayer::Asr, Prayer::Maghrib, Prayer::Isha];
 
     pub fn name(self) -> &'static str {
         match self {
             Prayer::Fajr => "Fajr",
+            Prayer::Sunrise => "Sunrise",
             Prayer::Dhuhr => "Dhuhr",
             Prayer::Asr => "Asr",
             Prayer::Maghrib => "Maghrib",
             Prayer::Isha => "Isha",
+            Prayer::Midnight => "Midnight",
         }
     }
 
@@ -35,16 +51,22 @@ impl Prayer {
         Prayer::ALL.into_iter().find(|p| p.name() == name)
     }
 
+    /// False for Sunrise and Midnight, which get no Adhan and are not called prayers.
+    pub fn is_prayer(self) -> bool {
+        !matches!(self, Prayer::Sunrise | Prayer::Midnight)
+    }
+
     fn index(self) -> usize {
         self as usize
     }
 }
 
-/// Prayer times of one calendar row, `HH:MM` in 24-hour format, indexed like [`Prayer::ALL`].
+/// Times of one calendar row, `HH:MM` in 24-hour format, indexed like [`Prayer::ROW`].
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct PrayerTimes(pub [String; 5]);
+pub struct PrayerTimes(pub [String; 6]);
 
 impl PrayerTimes {
+    /// Panics for `Prayer::Midnight`, which no row lists.
     pub fn get(&self, prayer: Prayer) -> &str {
         &self.0[prayer.index()]
     }
@@ -69,12 +91,13 @@ impl Calendar {
     }
 }
 
-const REQUIRED_HEADERS: [&str; 6] = ["date", "fajr", "dhuhr", "asr", "maghrib", "isha"];
+const REQUIRED_HEADERS: [&str; 7] = ["date", "fajr", "sunrise", "dhuhr", "asr", "maghrib", "isha"];
 
 fn header_alias(normalized: &str) -> Option<&'static str> {
     Some(match normalized {
         "date" | "التاريخ" => "date",
         "fajr" | "الفجر" => "fajr",
+        "sunrise" | "shuruq" | "الشروق" => "sunrise",
         "dhuhr" | "zuhr" | "الظهر" => "dhuhr",
         "asr" | "العصر" => "asr",
         "maghrib" | "المغرب" => "maghrib",
@@ -174,7 +197,7 @@ pub fn minute_of_day(time: &str) -> u32 {
 fn validate_prayer_order(prayers: &PrayerTimes, key: &str) -> Result<(), String> {
     let invalid = || format!("Invalid prayer order: {key}");
     let mut previous = minute_of_day(prayers.get(Prayer::Fajr));
-    for prayer in [Prayer::Dhuhr, Prayer::Asr, Prayer::Maghrib] {
+    for prayer in [Prayer::Sunrise, Prayer::Dhuhr, Prayer::Asr, Prayer::Maghrib] {
         let current = minute_of_day(prayers.get(prayer));
         if current <= previous {
             return Err(invalid());
@@ -216,6 +239,7 @@ pub fn parse_calendar(csv: &str) -> Result<Calendar, String> {
         }
         let prayers = PrayerTimes([
             parse_time(cell("fajr"))?,
+            parse_time(cell("sunrise"))?,
             parse_time(cell("dhuhr"))?,
             parse_time(cell("asr"))?,
             parse_time(cell("maghrib"))?,
@@ -319,10 +343,10 @@ impl Timed for LastThirdEvent {
 
 pub fn events_for_row(key: &str, prayers: &PrayerTimes) -> Result<Vec<PrayerEvent>, String> {
     let base = date_from_key(key).ok_or_else(|| format!("Invalid date: {key}"))?;
-    let mut events = Vec::with_capacity(Prayer::ALL.len());
+    let mut events = Vec::with_capacity(Prayer::ROW.len());
     let mut day_offset = 0u64;
     let mut previous_minute: Option<u32> = None;
-    for prayer in Prayer::ALL {
+    for prayer in Prayer::ROW {
         let time = prayers.get(prayer);
         let minute = minute_of_day(time);
         if previous_minute.is_some_and(|previous| minute < previous) {
@@ -361,12 +385,7 @@ pub fn events_around(calendar: &Calendar, now_ms: i64) -> Vec<PrayerEvent> {
     let today = local_today(now_ms);
     let mut events = Vec::new();
     for offset in -1..=2 {
-        let key = shifted_key(&today, offset);
-        if let Some(prayers) = calendar.dates.get(&key)
-            && let Ok(row) = events_for_row(&key, prayers)
-        {
-            events.extend(row);
-        }
+        events.extend(day_events(calendar, &shifted_key(&today, offset)));
     }
     events.sort_by_key(|event| event.timestamp);
     events
@@ -376,21 +395,47 @@ fn prayer_event_for_row(key: &str, prayers: &PrayerTimes, prayer: Prayer) -> Opt
     events_for_row(key, prayers).ok()?.into_iter().find(|event| event.name == prayer)
 }
 
+/// Maghrib of `night_date` and Fajr of the following day, when both rows exist and Fajr is later.
+fn night_bounds(calendar: &Calendar, night_date: &str) -> Option<(PrayerEvent, PrayerEvent)> {
+    let next_date = shifted_key(night_date, 1);
+    let maghrib = prayer_event_for_row(night_date, calendar.dates.get(night_date)?, Prayer::Maghrib)?;
+    let fajr = prayer_event_for_row(&next_date, calendar.dates.get(&next_date)?, Prayer::Fajr)?;
+    (fajr.timestamp > maghrib.timestamp).then_some((maghrib, fajr))
+}
+
+/// Islamic midnight of the night that begins at Maghrib on `night_date`: halfway to the
+/// next day's Fajr, truncated to the minute.
+pub fn midnight_event(calendar: &Calendar, night_date: &str) -> Option<PrayerEvent> {
+    let (maghrib, fajr) = night_bounds(calendar, night_date)?;
+    let middle = maghrib.timestamp + (fajr.timestamp - maghrib.timestamp) / 2;
+    let timestamp = middle - middle.rem_euclid(60_000);
+    let time = Local.timestamp_millis_opt(timestamp).single()?.format("%H:%M").to_string();
+    Some(PrayerEvent {
+        key: format!("{night_date}|Midnight"),
+        prayer_date: night_date.to_owned(),
+        name: Prayer::Midnight,
+        time,
+        timestamp,
+    })
+}
+
+/// Every time of `key` in [`Prayer::ALL`] order; Midnight only when the next day's row exists.
+pub fn day_events(calendar: &Calendar, key: &str) -> Vec<PrayerEvent> {
+    let mut events = calendar
+        .dates
+        .get(key)
+        .and_then(|prayers| events_for_row(key, prayers).ok())
+        .unwrap_or_default();
+    events.extend(midnight_event(calendar, key));
+    events
+}
+
 pub fn last_third_events_around(calendar: &Calendar, now_ms: i64) -> Vec<LastThirdEvent> {
     let today = local_today(now_ms);
     let mut events = Vec::new();
     for offset in -2..=1 {
         let night_date = shifted_key(&today, offset);
-        let next_date = shifted_key(&night_date, 1);
-        let (Some(prayers), Some(next_prayers)) = (calendar.dates.get(&night_date), calendar.dates.get(&next_date)) else {
-            continue;
-        };
-        let maghrib = prayer_event_for_row(&night_date, prayers, Prayer::Maghrib);
-        let fajr = prayer_event_for_row(&next_date, next_prayers, Prayer::Fajr);
-        let (Some(maghrib), Some(fajr)) = (maghrib, fajr) else { continue };
-        if fajr.timestamp <= maghrib.timestamp {
-            continue;
-        }
+        let Some((maghrib, fajr)) = night_bounds(calendar, &night_date) else { continue };
         let timestamp = (maghrib.timestamp as f64 + (fajr.timestamp - maghrib.timestamp) as f64 * 2.0 / 3.0).round() as i64;
         events.push(LastThirdEvent {
             key: format!("{night_date}|last-third"),

@@ -1,5 +1,5 @@
 //! `dulook`: backend process of the Dulook Omarchy Shell plugin.
-//! Reads JSON commands on stdin and writes `state`/`tick` JSON lines on stdout.
+//! Reads JSON commands on stdin and writes state, ticks and command replies on stdout.
 
 use std::io::{BufRead, Write};
 use std::path::PathBuf;
@@ -84,6 +84,7 @@ fn main() -> ExitCode {
     let mut next_tick: Option<Instant> = None;
     let mut next_hadith: Option<Instant> = None;
     let (mut last_state, mut last_tick) = (String::new(), String::new());
+    let mut last_calendar = String::new();
 
     loop {
         let deadline = [next_tick, next_hadith, service.hadith_retry_at].into_iter().flatten().min();
@@ -102,7 +103,14 @@ fn main() -> ExitCode {
                 Command::Dnd { value } => service.dnd = value,
                 _ => {}
             },
-            Ok(Event::Command(command)) => service.handle(command),
+            Ok(Event::Command(command)) => {
+                if let Some(reply) = service.handle(command)
+                    && emit(&mut last_calendar, &reply).is_err()
+                {
+                    service.stop_sound();
+                    return ExitCode::SUCCESS;
+                }
+            }
             Ok(Event::HadithFinished(result)) => service.finish_hadith(result),
             Ok(Event::DownloadProgress { done, total }) => service.download_progress(done, total),
             Ok(Event::DownloadFinished { slug, result }) => service.finish_download(slug, result),

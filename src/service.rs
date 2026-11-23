@@ -16,11 +16,12 @@ use regex::Regex;
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::{Map, Value, json};
 
+use crate::calendar_browser::{InstalledSource, Snapshot as CalendarBrowser};
 use crate::jsutil::{js_number, js_string, js_trim, localized_digits, now_ms, pad2, timezone_offset_minutes};
 use crate::locations;
 use crate::model::{self, Calendar, Prayer, PrayerEvent};
 use crate::online::{self, DownloadError, LocationMode, LocationRequest, OnlineLocation, OnlineQuery, PlaceSuggestion, SuggestField};
-use crate::protocol::{Command as Cmd, Event};
+use crate::protocol::{BrowseSelection, Command as Cmd, Event, calendar_reply};
 use crate::settings::{Settings, expand_path};
 use crate::tiles;
 use crate::translations::{self, Lang};
@@ -239,6 +240,8 @@ pub struct Service {
     calendar_texts: Vec<String>,
     /// Files of the selected calendar and their signatures when it was last read.
     calendar_files: Vec<(PathBuf, FileSignature)>,
+    calendar_browser: Option<CalendarBrowser>,
+    calendar_revision: u64,
     next_prayer: Option<PrayerEvent>,
     remaining_seconds: i64,
     prayer_rows: Vec<PrayerEvent>,
@@ -296,6 +299,8 @@ impl Service {
             calendar_error: None,
             calendar_texts: Vec::new(),
             calendar_files: Vec::new(),
+            calendar_browser: None,
+            calendar_revision: 0,
             next_prayer: None,
             remaining_seconds: 0,
             prayer_rows: Vec::new(),
@@ -344,11 +349,12 @@ impl Service {
         self.update_clock(true);
     }
 
-    pub fn handle(&mut self, command: Cmd) {
+    pub fn handle(&mut self, command: Cmd) -> Option<Value> {
         match command {
             Cmd::Settings { settings } => self.apply_settings(&settings),
             Cmd::Dnd { value } => self.dnd = value,
             Cmd::ReloadCalendar => self.reload_calendar(),
+            Cmd::BrowseCalendar { request_id, selection } => return Some(self.browse_calendar(request_id, selection)),
             Cmd::RefreshClock => self.update_clock(false),
             Cmd::NextHadith => self.next_hadith(),
             Cmd::PreviousHadith => self.previous_hadith(),
@@ -410,6 +416,7 @@ impl Service {
             Cmd::RenameCalendar { folder, name } => self.rename_calendar(&folder, &name),
             Cmd::DeleteCalendar { folder } => self.delete_calendar(&folder),
         }
+        None
     }
 
     /// Clock timer: audio exit, calendar file changes, countdown and alerts.
@@ -449,6 +456,45 @@ impl Service {
     }
 
     // ---- calendar -------------------------------------------------------
+
+    fn browse_calendar(&mut self, request_id: u64, selection: BrowseSelection) -> Value {
+        match selection {
+            BrowseSelection::Open => match self.load_calendar_browser() {
+                Ok(snapshot) => calendar_reply(request_id, "open", Ok(self.calendar_browser.insert(snapshot).catalog())),
+                Err(error) => {
+                    self.calendar_browser = None;
+                    calendar_reply::<()>(request_id, "open", Err(error))
+                }
+            },
+            BrowseSelection::Month { basis, year, month } => calendar_reply(request_id, "month", self.calendar_browser
+                .as_ref().map(|snapshot| snapshot.month(basis, year, month)).ok_or("calendarBrowserReload")),
+        }
+    }
+
+    fn load_calendar_browser(&self) -> Result<CalendarBrowser, &'static str> {
+        let settings = self.settings();
+        let location = &settings.location;
+        let now = now_ms();
+        if location == locations::CUSTOM {
+            return if settings.calendar_path.is_empty() {
+                Err("noCalendar")
+            } else {
+                CalendarBrowser::custom(Path::new(&settings.effective_calendar_path), now)
+            };
+        }
+        if !self.is_installed(location) {
+            return Err("unknownLocation");
+        }
+        let timezone = self.calendar_source_timezone().map_err(|error| {
+            eprintln!("Dulook calendar browser: {error}");
+            "invalidCalendar"
+        })?;
+        if let Some(slug) = locations::downloaded_slug(location) {
+            CalendarBrowser::installed(InstalledSource::Downloaded { root: &self.online_root(), slug }, timezone, now)
+        } else {
+            CalendarBrowser::installed(InstalledSource::Bundled { root: &self.paths.plugin_dir.join("data"), location }, timezone, now)
+        }
+    }
 
     fn clear_calendar(&mut self, error_key: Option<&'static str>) {
         self.calendar = None;
@@ -512,6 +558,8 @@ impl Service {
     }
 
     fn read_calendar_files(&mut self) {
+        self.calendar_browser = None;
+        self.calendar_revision += 1;
         let settings = self.settings();
         let custom = settings.location == locations::CUSTOM;
         let error = if custom && settings.calendar_path.is_empty() {
@@ -1313,6 +1361,7 @@ impl Service {
             "notifyEnabled": Self::per_prayer(&settings.notify),
             "remindEnabled": Self::per_prayer(&settings.remind),
             "strings": translations::strings(lang),
+            "calendarRevision": self.calendar_revision,
             "calendarReady": self.calendar_ready,
             "calendarError": self.calendar_error.map_or("", |key| self.tr(key)),
             "coverage": coverage,

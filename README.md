@@ -16,6 +16,7 @@ access is used only to request Arabic and English Hadith; a reviewed set of
 - Online location (country, city, optional ZIP code) downloaded for this year and the next 10,
   or a calendar bundled under `data/`
 - Optional custom CSV with automatic reload on file changes
+- Standalone Gregorian and Hijri prayer timetables, with a year overview for every covered year
 - Four bundled Adhan recordings
 - Native prayer notifications on every monitor, including a reminder 15 minutes before each prayer
 - Sunrise, the sun's yellowing (end of the chosen Asr time), and Islamic midnight shown, counted down to, and notified like prayers, without the Adhan
@@ -146,9 +147,23 @@ Nordhorn, Qalyub, Ricklingen, Sohag and Veldhausen. They live in
 `data/<location>/prayer-times-<year>-<location>.csv`.
 
 **Offline / Custom CSV…** reads the selected file directly: it is not uploaded,
-copied, or cached. If it is moved or deleted, prayer times and alerts remain
+copied, or cached on disk. If it is moved or deleted, prayer times and alerts remain
 unavailable until a valid path is selected. Settings saved before locations
 existed keep their custom CSV.
+
+### Browse the prayer calendar
+
+Open the Dulook panel and click **▦ Prayer calendar** beside Settings. The
+window opens on the current Gregorian month. Switch to **Hijri** and select
+**Ramadan**, the ninth month, to plan for any covered Ramadan.
+
+**Year overview** shows all 12 months and each month's covered date range in
+the other calendar. Select a covered month to see both dates and all eight
+times, including Yellowing and Islamic Midnight, in 24-hour system-local time.
+The browser reads every available year of the selected source without
+downloading anything or changing the alert schedule. Missing dates and times
+are not estimated. Hijri browsing is unavailable if the source has no valid
+Hijri dates.
 
 ### Online location
 
@@ -246,11 +261,15 @@ Required columns can use English or Arabic headers:
 | `Maghrib` | `المغرب` |
 | `Isha` | `العشاء` |
 
-Additional columns are ignored. Dates may use `DD/MM/YYYY` or `YYYY-MM-DD`.
+Gregorian dates may use `DD/MM/YYYY` or `YYYY-MM-DD`. An optional `Hijri`
+(`التاريخ الهجري`) column supplies the paired Hijri date: `DD/MM/YYYY`, optionally
+with a suffix such as `(Ram)`, or `YYYY-MM-DD`. Hijri dates also accept
+Arabic-Indic digits. Other columns are ignored.
+
 Times may use 24-hour `HH:mm` or 12-hour `hh:mm am/pm` notation. A time after
 midnight that appears after a later evening prayer is treated as belonging to
-the following civil day. Prayer times are displayed using a 12-hour clock with
-`AM`/`PM`.
+the following civil day. The panel displays times using a 12-hour clock with
+`AM`/`PM`; the calendar table uses a 24-hour clock.
 
 ## Notifications And Sound
 

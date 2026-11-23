@@ -78,9 +78,23 @@ impl PrayerTimes {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct HijriDate {
+    pub year: i32,
+    pub month: u8,
+    pub day: u8,
+}
+
+impl HijriDate {
+    pub(crate) fn iso(self) -> String {
+        format!("{:04}-{:02}-{:02}", self.year, self.month, self.day)
+    }
+}
+
 #[derive(Clone, Debug, Default)]
 pub struct Calendar {
     pub dates: BTreeMap<String, PrayerTimes>,
+    hijri_dates: BTreeMap<NaiveDate, HijriDate>,
     /// Latitude estimated from the rows' day lengths; see `estimate_latitude`.
     pub latitude: Option<f64>,
     source_timezone: Option<Tz>,
@@ -99,6 +113,10 @@ impl Calendar {
         self.dates.keys().next_back().map(String::as_str).unwrap_or("")
     }
 
+    pub(crate) fn hijri_date(&self, date: NaiveDate) -> Option<HijriDate> {
+        self.hijri_dates.get(&date).copied()
+    }
+
     pub(crate) fn source_timezone(&self) -> Option<Tz> {
         self.source_timezone
     }
@@ -109,6 +127,7 @@ const REQUIRED_HEADERS: [&str; 7] = ["date", "fajr", "sunrise", "dhuhr", "asr", 
 fn header_alias(normalized: &str) -> Option<&'static str> {
     Some(match normalized {
         "date" | "التاريخ" => "date",
+        "hijri" | "التاريخ الهجري" => "hijri",
         "fajr" | "الفجر" => "fajr",
         "sunrise" | "shuruq" | "الشروق" => "sunrise",
         "dhuhr" | "zuhr" | "الظهر" => "dhuhr",
@@ -179,6 +198,42 @@ pub fn parse_date(value: &str) -> Result<NaiveDate, String> {
         return Err(invalid());
     }
     NaiveDate::from_ymd_opt(year, month, day).ok_or_else(invalid)
+}
+
+fn parse_hijri_date(value: &str) -> Option<HijriDate> {
+    let value = js_trim(value);
+    let date = if let Some((date, suffix)) = value.split_once('(') {
+        let abbreviation = suffix.strip_suffix(')')?;
+        if js_trim(abbreviation).is_empty() || abbreviation.contains(['(', ')']) || !date.contains('/') {
+            return None;
+        }
+        js_trim(date)
+    } else {
+        value
+    };
+    let mut ascii = [0; 10];
+    let mut digits = date.chars();
+    for byte in &mut ascii {
+        *byte = match digits.next()? {
+            c @ ('0'..='9' | '/' | '-') => c as u8,
+            c @ '٠'..='٩' => b'0' + (c as u32 - '٠' as u32) as u8,
+            _ => return None,
+        };
+    }
+    if digits.next().is_some() {
+        return None;
+    }
+    let text = std::str::from_utf8(&ascii).ok()?;
+    let (year, month, day) = match (ascii[2], ascii[4], ascii[5], ascii[7]) {
+        (b'/', _, b'/', _) => (&text[6..], &text[3..5], &text[..2]),
+        (_, b'-', _, b'-') => (&text[..4], &text[5..7], &text[8..]),
+        _ => return None,
+    };
+    if ![year, month, day].into_iter().all(|part| part.bytes().all(|b| b.is_ascii_digit())) {
+        return None;
+    }
+    let date = HijriDate { year: year.parse().ok()?, month: month.parse().ok()?, day: day.parse().ok()? };
+    (date.year > 0 && (1..=12).contains(&date.month) && (1..=30).contains(&date.day)).then_some(date)
 }
 
 pub fn parse_time(value: &str) -> Result<String, String> {
@@ -302,6 +357,7 @@ pub fn parse_calendar(csv: &str, source_timezone: Option<Tz>) -> Result<Calendar
         }
     }
 
+    let hijri_column = columns.get("hijri").copied();
     let mut calendar = Calendar { source_timezone, ..Calendar::default() };
     for line in &meaningful[1..] {
         let row = parse_csv_row(line)?;
@@ -322,6 +378,9 @@ pub fn parse_calendar(csv: &str, source_timezone: Option<Tz>) -> Result<Calendar
         validate_prayer_order(&prayers, &key)?;
         row_timestamps(date, &prayers, source_timezone)?;
         calendar.dates.insert(key, prayers);
+        if let Some(hijri) = hijri_column.and_then(|index| row.get(index)).and_then(|value| parse_hijri_date(value)) {
+            calendar.hijri_dates.insert(date, hijri);
+        }
     }
 
     let keys: Vec<&String> = calendar.dates.keys().collect();
@@ -354,12 +413,13 @@ pub fn merge_calendars(calendars: impl IntoIterator<Item = Calendar>) -> Result<
             }
             merged.dates.insert(key, prayers);
         }
+        merged.hijri_dates.extend(calendar.hijri_dates);
     }
     merged.latitude = estimate_latitude(&merged.dates);
     Ok(merged)
 }
 
-fn date_from_key(key: &str) -> Option<NaiveDate> {
+pub(crate) fn date_from_key(key: &str) -> Option<NaiveDate> {
     NaiveDate::parse_from_str(key, "%Y-%m-%d").ok()
 }
 
@@ -468,20 +528,30 @@ pub fn events_around(calendar: &Calendar, now_ms: i64) -> Vec<PrayerEvent> {
 /// Maghrib of `night_date` and Fajr of the following day, when both rows exist and Fajr is later.
 fn night_bounds(calendar: &Calendar, night_date: &str) -> Option<(i64, i64)> {
     let date = date_from_key(night_date)?;
-    let next_date = date.succ_opt()?;
     let night = row_timestamps(date, calendar.dates.get(night_date)?, calendar.source_timezone).ok()?;
+    next_fajr(calendar, date, night[4]).map(|fajr| (night[4], fajr))
+}
+
+fn next_fajr(calendar: &Calendar, date: NaiveDate, maghrib: i64) -> Option<i64> {
+    let next_date = date.succ_opt()?;
     let morning = row_timestamps(next_date, calendar.dates.get(&date_key(next_date))?, calendar.source_timezone).ok()?;
-    let maghrib = night[Prayer::Maghrib.row_index()?];
-    let fajr = morning[Prayer::Fajr.row_index()?];
-    (fajr > maghrib).then_some((maghrib, fajr))
+    (morning[0] > maghrib).then_some(morning[0])
+}
+
+fn night_midpoint(maghrib: i64, fajr: i64) -> i64 {
+    let middle = maghrib + (fajr - maghrib) / 2;
+    middle - middle.rem_euclid(60_000)
+}
+
+fn midnight_timestamp(calendar: &Calendar, key: &str) -> Option<i64> {
+    let (maghrib, fajr) = night_bounds(calendar, key)?;
+    Some(night_midpoint(maghrib, fajr))
 }
 
 /// Islamic midnight of the night that begins at Maghrib on `night_date`: halfway to the
 /// next day's Fajr, truncated to the minute.
 pub fn midnight_event(calendar: &Calendar, night_date: &str) -> Option<PrayerEvent> {
-    let (maghrib, fajr) = night_bounds(calendar, night_date)?;
-    let middle = maghrib + (fajr - maghrib) / 2;
-    let timestamp = middle - middle.rem_euclid(60_000);
+    let timestamp = midnight_timestamp(calendar, night_date)?;
     let time = local_time(timestamp)?;
     Some(PrayerEvent {
         key: format!("{night_date}|Midnight"),
@@ -496,25 +566,13 @@ pub fn midnight_event(calendar: &Calendar, night_date: &str) -> Option<PrayerEve
 /// `YELLOWING_ALTITUDE_DEG`, measured from solar noon (midway between Sunrise and Maghrib),
 /// truncated to the minute. `None` without a latitude, when the sun never gets that high,
 /// or when the result is not strictly between Asr and Maghrib.
-fn yellowing_event(latitude: Option<f64>, key: &str, row: &[PrayerEvent]) -> Option<PrayerEvent> {
-    let find = |prayer: Prayer| row.iter().find(|event| event.name == prayer);
-    let (sunrise, asr, maghrib) = (find(Prayer::Sunrise)?, find(Prayer::Asr)?, find(Prayer::Maghrib)?);
+fn yellowing_timestamp(latitude: Option<f64>, key: &str, sunrise: i64, asr: i64, maghrib: i64) -> Option<i64> {
     let hours = hour_angle(YELLOWING_ALTITUDE_DEG, latitude?, declination(key)?)?;
-    let noon = sunrise.timestamp + (maghrib.timestamp - sunrise.timestamp) / 2;
+    let noon = sunrise + (maghrib - sunrise) / 2;
     // One degree of hour angle is 4 minutes.
     let middle = noon + (hours * 240_000.0) as i64;
     let timestamp = middle - middle.rem_euclid(60_000);
-    if !(asr.timestamp < timestamp && timestamp < maghrib.timestamp) {
-        return None;
-    }
-    let time = local_time(timestamp)?;
-    Some(PrayerEvent {
-        key: format!("{key}|Yellowing"),
-        prayer_date: key.to_owned(),
-        name: Prayer::Yellowing,
-        time,
-        timestamp,
-    })
+    (asr < timestamp && timestamp < maghrib).then_some(timestamp)
 }
 
 /// The first time after `event` (e.g. Maghrib after Yellowing, the next Fajr after Midnight).
@@ -522,19 +580,38 @@ pub fn following_event(calendar: &Calendar, event: &PrayerEvent) -> Option<Praye
     events_around(calendar, event.timestamp).into_iter().find(|next| next.timestamp > event.timestamp)
 }
 
+fn day_timestamps(calendar: &Calendar, key: &str) -> Option<[Option<i64>; Prayer::ALL.len()]> {
+    let date = date_from_key(key)?;
+    let [fajr, sunrise, dhuhr, asr, maghrib, isha] =
+        row_timestamps(date, calendar.dates.get(key)?, calendar.source_timezone).ok()?;
+    Some([
+        Some(fajr),
+        Some(sunrise),
+        Some(dhuhr),
+        Some(asr),
+        yellowing_timestamp(calendar.latitude, key, sunrise, asr, maghrib),
+        Some(maghrib),
+        Some(isha),
+        next_fajr(calendar, date, maghrib).map(|fajr| night_midpoint(maghrib, fajr)),
+    ])
+}
+
+pub(crate) fn day_time_cells(calendar: &Calendar, key: &str) -> [Option<String>; Prayer::ALL.len()] {
+    day_timestamps(calendar, key).unwrap_or_default().map(|timestamp| timestamp.and_then(local_time))
+}
+
 /// Every time of `key` in [`Prayer::ALL`] order; Yellowing only when computable, Midnight
 /// only when the next day's row exists.
 pub fn day_events(calendar: &Calendar, key: &str) -> Vec<PrayerEvent> {
-    let Some(prayers) = calendar.dates.get(key) else { return Vec::new() };
-    let Some(date) = date_from_key(key) else { return Vec::new() };
-    let Ok(timestamps) = row_timestamps(date, prayers, calendar.source_timezone) else { return Vec::new() };
+    let Some(timestamps) = day_timestamps(calendar, key) else { return Vec::new() };
     let mut events = Vec::with_capacity(Prayer::ALL.len());
-    for (index, (name, timestamp)) in Prayer::ROW.into_iter().zip(timestamps).enumerate() {
-        let time = if calendar.source_timezone.is_some() {
-            let Some(time) = local_time(timestamp) else { return Vec::new() };
-            time
-        } else {
-            prayers.0[index].clone()
+    for (name, timestamp) in Prayer::ALL.into_iter().zip(timestamps) {
+        let Some(timestamp) = timestamp else { continue };
+        let Some(time) = local_time(timestamp) else {
+            if name.row_index().is_some() {
+                return Vec::new();
+            }
+            continue;
         };
         events.push(PrayerEvent {
             key: format!("{key}|{}", name.name()),
@@ -544,11 +621,6 @@ pub fn day_events(calendar: &Calendar, key: &str) -> Vec<PrayerEvent> {
             timestamp,
         });
     }
-    if let Some(yellowing) = yellowing_event(calendar.latitude, key, &events) {
-        let at = events.iter().position(|event| event.name == Prayer::Maghrib).unwrap_or(events.len());
-        events.insert(at, yellowing);
-    }
-    events.extend(midnight_event(calendar, key));
     events
 }
 

@@ -1,3 +1,4 @@
+mod calendar_browser;
 pub mod hadith_data;
 pub mod jsutil;
 pub mod locations;

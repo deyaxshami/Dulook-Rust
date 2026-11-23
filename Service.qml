@@ -4,8 +4,7 @@ import Quickshell.Io
 
 // Thin bridge to the Rust backend (bin/dulook). The backend owns all logic:
 // calendar, alerts, Adhan audio, Hadith, translations, and formatting.
-// It receives commands as JSON lines on stdin and answers with
-// {"type":"state"} and {"type":"tick"} JSON lines on stdout.
+// It exchanges JSON lines over stdin/stdout.
 Item {
   id: root
 
@@ -36,6 +35,9 @@ Item {
   property bool backendReady: false
   property var backendState: ({})
   property var backendTick: ({})
+  signal calendarBrowserReply(var reply)
+  property real calendarRevision: 0
+  property real calendarRequestId: 0
 
   readonly property string language: backendState.language === "ar" ? "ar" : "en"
   readonly property string hadithLanguage: backendState.hadithLanguage === "ar" ? "ar" : "en"
@@ -103,6 +105,12 @@ Item {
   function sendSettings() { send({ cmd: "settings", settings: settings }) }
   function applySettings(entry) { send({ cmd: "settings", settings: entry }) }
   function reloadCalendar() { send({ cmd: "reloadCalendar" }) }
+  function openCalendarBrowser() { calendarWindow.showBrowser() }
+  function requestCalendarBrowser(selection) {
+    calendarRequestId += 1
+    send({ cmd: "browseCalendar", requestId: calendarRequestId, selection: selection })
+    return calendarRequestId
+  }
   function refreshClock() { send({ cmd: "refreshClock" }) }
   function nextHadith() { send({ cmd: "nextHadith" }) }
   function previousHadith() { send({ cmd: "previousHadith" }) }
@@ -132,14 +140,25 @@ Item {
       console.warn("Dulook backend:", line)
       return
     }
-    if (message.type === "state") backendState = message
-    else if (message.type === "tick") backendTick = message
+    if (message.type === "state") {
+      backendState = message
+      calendarRevision = message.calendarRevision || 0
+    } else if (message.type === "tick") {
+      backendTick = message
+    } else if (message.type === "calendarBrowser") {
+      calendarBrowserReply(message)
+    }
   }
 
   onSettingsChanged: sendSettings()
   onDndChanged: send({ cmd: "dnd", value: dnd })
   // The shell injects omarchyPath before shell, so the backend starts with the final paths.
   onShellChanged: if (shell && !backend.running) backend.running = true
+
+  CalendarWindow {
+    id: calendarWindow
+    service: root
+  }
 
   Process {
     id: backend
@@ -159,6 +178,7 @@ Item {
     }
     onExited: {
       root.backendReady = false
+      root.calendarRevision = 0
       if (root.shell) backendRetry.restart()
     }
   }

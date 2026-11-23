@@ -1,13 +1,42 @@
 //! Line protocol between the QML bridge (`Service.qml`) and the `dulook` process.
 //!
 //! stdin: one JSON command object per line (`{"cmd": "..."}`).
-//! stdout: one JSON message per line, `{"type": "state", ...}` or `{"type": "tick", ...}`.
+//! stdout: one JSON message per line (`state`, `tick` or a `calendarBrowser` reply).
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
+pub use crate::calendar_browser::CalendarBasis;
 use crate::online::{DownloadError, OnlineLocation, PlaceSuggestion, SuggestField};
 use crate::service::Hadith;
+
+#[derive(Debug, Deserialize)]
+#[serde(tag = "view", rename_all = "camelCase")]
+pub enum BrowseSelection {
+    Open,
+    Month { basis: CalendarBasis, year: i32, month: u8 },
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct CalendarReply<T> {
+    #[serde(rename = "type")]
+    kind: &'static str,
+    request_id: u64,
+    view: &'static str,
+    error: Option<&'static str>,
+    #[serde(flatten)]
+    data: Option<T>,
+}
+
+pub(crate) fn calendar_reply<T: Serialize>(request_id: u64, view: &'static str, result: Result<T, &'static str>) -> Value {
+    let (data, error) = match result {
+        Ok(data) => (Some(data), None),
+        Err(error) => (None, Some(error)),
+    };
+    serde_json::to_value(CalendarReply { kind: "calendarBrowser", request_id, view, error, data })
+        .expect("calendar replies serialize into JSON objects")
+}
 
 #[derive(Debug, Deserialize)]
 #[serde(tag = "cmd", rename_all = "camelCase")]
@@ -20,6 +49,11 @@ pub enum Command {
         value: bool,
     },
     ReloadCalendar,
+    #[serde(rename_all = "camelCase")]
+    BrowseCalendar {
+        request_id: u64,
+        selection: BrowseSelection,
+    },
     RefreshClock,
     NextHadith,
     PreviousHadith,

@@ -418,12 +418,24 @@ Panel {
             spacing: Style.spacing.md
             Text {
               textFormat: Text.PlainText
-              width: parent.width - settingsButton.width - parent.spacing
+              width: parent.width - calendarButton.width - settingsButton.width - 2 * parent.spacing
               text: root.tr("appName")
               color: root.foreground
               font.family: root.uiFont
               font.pixelSize: Style.font.title
               font.bold: true
+            }
+            PanelActionButton {
+              id: calendarButton
+              iconText: "▦"
+              tooltipText: root.tr("calendar")
+              foreground: root.foreground
+              focusable: true
+              enabled: !!root.service
+              onClicked: {
+                root.service.openCalendarBrowser()
+                root.close()
+              }
             }
             PanelActionButton {
               id: settingsButton

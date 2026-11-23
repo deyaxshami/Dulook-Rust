@@ -116,9 +116,14 @@ Choose where prayer times come from in Settings → Prayer calendar → **Locati
 | **Offline / Custom CSV…** | Any local calendar file |
 
 New installations start on **Offline / Installed Calendars** with Nordhorn. Dulook
-loads the location's calendar for the current year, together with the
+loads the calendar for the current year in its source time zone, together with the
 neighbouring years so prayers around New Year are scheduled, and switches files
 automatically when the year changes.
+
+Dulook shows prayer times in the computer's current time zone and schedules
+countdowns and alerts for those same instants. For example, when Cairo is
+one hour ahead of Nordhorn, a Cairo Fajr at 6:00 AM shows as 5:00 AM in Nordhorn.
+The difference follows daylight-saving rules for the date of each prayer.
 
 **Offline / Installed Calendars** lists the bundled calendars, then every
 calendar installed by an online source. A downloaded calendar is read as it is:
@@ -180,7 +185,8 @@ Every download uses the same calculation settings:
 - Altitude, Asr madhhab and daylight saving: automatic.
 - Refraction: standard.
 
-Times are calculated for the computer's system time zone.
+Times are calculated in the computer's time zone at download, then read in
+the zone saved in `location.json` even if the computer's time zone changes.
 
 Each location gets its own folder in `$XDG_DATA_HOME/dulook/calendars/`
 (default `~/.local/share/dulook/calendars/`), named
@@ -213,8 +219,9 @@ house number is only used together with a street.
 ### Adding a bundled location
 
 To add a bundled location, create `data/<name>/` with one
-`prayer-times-<year>-<name>.csv` per year and add `<name>` to the `location`
-options in `manifest.json`. The same scraper downloads them:
+`prayer-times-<year>-<name>.csv` per year, add `<name>` to the `location`
+options in `manifest.json`, and register the CSV's source time zone in
+`src/locations.rs`. The same scraper downloads the CSVs:
 
 ```bash
 cargo run --release --bin dulook-data -- calendar --country DE --city Nordhorn --zip 48527 \
@@ -224,8 +231,8 @@ cargo run --release --bin dulook-data -- calendar --country DE --city Nordhorn -
 Files are named `[Country]_[ZIP]_[City]_<year>.csv`. Rename them to
 `prayer-times-<year>-<name>.csv` for a bundled location.
 
-CSV times are interpreted in the computer's current system timezone. Use a
-calendar prepared for the same location and timezone as the computer.
+Custom CSVs and extra folders without a registered time zone are interpreted
+in the computer's current time zone. Use a CSV prepared for that time zone.
 
 Required columns can use English or Arabic headers:
 

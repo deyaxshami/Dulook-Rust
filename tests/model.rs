@@ -1,7 +1,8 @@
 use std::collections::BTreeSet;
 use std::path::Path;
 
-use chrono::{Datelike, Local, TimeZone};
+use chrono::{Datelike, Local, TimeZone, Utc};
+use chrono_tz::Africa::Cairo;
 use dulook::locations;
 use dulook::model::{self, Calendar, Prayer};
 use dulook::translations::{self, AR, EN, Lang};
@@ -15,6 +16,10 @@ fn local_ms(year: i32, month: u32, day: u32, hour: u32, minute: u32, second: u32
     Local.with_ymd_and_hms(year, month, day, hour, minute, second).single().unwrap().timestamp_millis()
 }
 
+fn utc_ms(year: i32, month: u32, day: u32, hour: u32, minute: u32, second: u32) -> i64 {
+    Utc.with_ymd_and_hms(year, month, day, hour, minute, second).single().unwrap().timestamp_millis()
+}
+
 fn plugin_dir() -> &'static Path {
     Path::new(env!("CARGO_MANIFEST_DIR"))
 }
@@ -22,29 +27,93 @@ fn plugin_dir() -> &'static Path {
 fn bundled_calendar(location: &str, year: i32) -> Calendar {
     let path = locations::calendar_file(&plugin_dir().join("data"), location, year);
     let csv = std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
-    model::parse_calendar(&csv).unwrap_or_else(|e| panic!("{}: {e}", path.display()))
+    model::parse_calendar(&csv, locations::bundled_source_timezone(location)).unwrap_or_else(|e| panic!("{}: {e}", path.display()))
 }
 
 fn one_day_calendar(row: &str) -> Calendar {
-    model::parse_calendar(&format!("Date,Fajr,Sunrise,Dhuhr,Asr,Maghrib,Isha\n{row}")).unwrap()
+    model::parse_calendar(&format!("Date,Fajr,Sunrise,Dhuhr,Asr,Maghrib,Isha\n{row}"), None).unwrap()
+}
+
+#[test]
+fn cairo_fajr_uses_the_dates_offset_for_display_and_alerts() {
+    let calendar = model::parse_calendar(
+        "Date,Fajr,Sunrise,Dhuhr,Asr,Maghrib,Isha
+2026-11-23,06:00,07:00,12:00,15:00,18:30,20:00
+2026-04-10,06:00,07:00,12:00,15:00,18:30,20:00",
+        Some(Cairo),
+    )
+    .unwrap();
+
+    for (date, month, day) in [("2026-11-23", 11, 23), ("2026-04-10", 4, 10)] {
+        let expected = utc_ms(2026, month, day, 4, 0, 0);
+        let fajr = model::day_events(&calendar, date).into_iter().find(|e| e.name == Prayer::Fajr).unwrap();
+        assert_eq!(fajr.timestamp, expected);
+        assert_eq!(fajr.time, Local.timestamp_millis_opt(expected).unwrap().format("%H:%M").to_string());
+    }
+
+    let before_reminder = utc_ms(2026, 11, 23, 3, 44, 59);
+    let at_reminder = utc_ms(2026, 11, 23, 3, 45, 0);
+    let snapshot = model::snapshot(&calendar, before_reminder);
+    assert_eq!(snapshot.next.unwrap().name, Prayer::Fajr);
+    assert_eq!(snapshot.remaining_seconds, 901);
+    let reminders = model::due_events(&calendar, before_reminder, at_reminder, 120_000, 900_000);
+    assert_eq!(reminders.iter().map(|e| e.name).collect::<Vec<_>>(), [Prayer::Fajr]);
+    assert!(model::due_events(&calendar, before_reminder, at_reminder, 120_000, 0).is_empty());
+
+    let at_fajr = utc_ms(2026, 11, 23, 4, 0, 0);
+    let due = model::due_events(&calendar, at_fajr - 1000, at_fajr, 120_000, 0);
+    assert_eq!(due.iter().map(|e| e.name).collect::<Vec<_>>(), [Prayer::Fajr]);
+}
+
+#[test]
+fn cairo_midnight_measures_elapsed_time_across_the_dst_change() {
+    let calendar = model::parse_calendar(
+        "Date,Fajr,Sunrise,Dhuhr,Asr,Maghrib,Isha
+2026-04-23,06:00,07:00,12:00,15:00,18:30,20:00
+2026-04-24,06:00,07:00,12:00,15:00,18:30,20:00",
+        Some(Cairo),
+    )
+    .unwrap();
+    let expected = utc_ms(2026, 4, 23, 21, 45, 0);
+    let midnight = model::midnight_event(&calendar, "2026-04-23").unwrap();
+    assert_eq!(midnight.timestamp, expected);
+    assert_eq!(midnight.time, Local.timestamp_millis_opt(expected).unwrap().format("%H:%M").to_string());
+}
+
+#[test]
+fn cairo_fajr_keeps_the_source_date_across_new_year() {
+    let calendar = model::parse_calendar(
+        "Date,Fajr,Sunrise,Dhuhr,Asr,Maghrib,Isha\n2027-01-01,00:30,06:00,12:00,15:00,18:00,19:00",
+        Some(Cairo),
+    )
+    .unwrap();
+    let expected = utc_ms(2026, 12, 31, 22, 30, 0);
+    let snapshot = model::snapshot(&calendar, expected - 1000);
+    let fajr = snapshot.next.unwrap();
+    assert_eq!(snapshot.date_key, "2027-01-01");
+    assert_eq!(fajr.name, Prayer::Fajr);
+    assert_eq!(fajr.timestamp, expected);
+    assert_eq!(fajr.prayer_date, "2027-01-01");
+    assert_eq!(fajr.time, Local.timestamp_millis_opt(expected).unwrap().format("%H:%M").to_string());
 }
 
 #[test]
 fn parses_english_headers_quoted_fields_and_overnight_times() {
-    let calendar = model::parse_calendar(ENGLISH_CSV).unwrap();
+    let calendar = model::parse_calendar(ENGLISH_CSV, None).unwrap();
     assert_eq!(calendar.row_count(), 3);
     assert_eq!(calendar.first_date(), "2026-06-01");
     let row = &calendar.dates["2026-06-01"];
     assert_eq!(row.get(Prayer::Dhuhr), "13:15");
     assert_eq!(row.get(Prayer::Isha), "00:10");
-    let events = model::events_for_row("2026-06-01", row).unwrap();
-    assert_eq!(Local.timestamp_millis_opt(events[5].timestamp).unwrap().day(), 2);
+    let isha = model::day_events(&calendar, "2026-06-01").into_iter().find(|e| e.name == Prayer::Isha).unwrap();
+    assert_eq!(Local.timestamp_millis_opt(isha.timestamp).unwrap().day(), 2);
 }
 
 #[test]
 fn parses_arabic_headers_and_iso_dates() {
     let calendar = model::parse_calendar(
         "التاريخ,الفجر,الشروق,الظهر,العصر,المغرب,العشاء\n2026-09-03,05:27,06:58,13:36,17:11,20:17,21:34",
+        None,
     )
     .unwrap();
     assert_eq!(calendar.dates["2026-09-03"].get(Prayer::Fajr), "05:27");
@@ -62,6 +131,7 @@ fn manifest_lists_bundled_and_custom_locations_with_complete_years() {
     assert_eq!(options, serde_json::json!(expected));
 
     for location in locations::bundled_locations(plugin_dir()) {
+        assert!(locations::bundled_source_timezone(&location).is_some(), "{location}");
         for year in 2026..=2037 {
             let calendar = bundled_calendar(&location, year);
             assert_eq!(calendar.first_date(), format!("{year}-01-01"), "{location} {year}");
@@ -104,7 +174,7 @@ fn bundles_valid_mp3_defaults_and_references_them_from_the_manifest() {
 
 #[test]
 fn uses_tomorrows_actual_fajr_after_the_final_prayer() {
-    let calendar = model::parse_calendar(ENGLISH_CSV).unwrap();
+    let calendar = model::parse_calendar(ENGLISH_CSV, None).unwrap();
     let state = model::snapshot(&calendar, local_ms(2026, 6, 2, 0, 30, 0));
     let next = state.next.unwrap();
     assert_eq!(next.name, Prayer::Fajr);
@@ -114,7 +184,7 @@ fn uses_tomorrows_actual_fajr_after_the_final_prayer() {
 
 #[test]
 fn computes_islamic_midnight_halfway_from_maghrib_to_the_next_fajr() {
-    let calendar = model::parse_calendar(ENGLISH_CSV).unwrap();
+    let calendar = model::parse_calendar(ENGLISH_CSV, None).unwrap();
     let events = model::day_events(&calendar, "2026-06-01");
     assert_eq!(events.iter().map(|e| e.name).collect::<Vec<_>>(), Prayer::ALL);
     let midnight = events.last().unwrap();
@@ -128,7 +198,7 @@ fn computes_islamic_midnight_halfway_from_maghrib_to_the_next_fajr() {
 
 #[test]
 fn counts_down_to_midnight_after_isha() {
-    let calendar = model::parse_calendar(ENGLISH_CSV).unwrap();
+    let calendar = model::parse_calendar(ENGLISH_CSV, None).unwrap();
     let next = model::snapshot(&calendar, local_ms(2026, 6, 2, 0, 10, 30)).next.unwrap();
     assert_eq!(next.name, Prayer::Midnight);
     assert_eq!(next.prayer_date, "2026-06-01");
@@ -136,12 +206,12 @@ fn counts_down_to_midnight_after_isha() {
 
 const EQUINOX_ONLY_CSV: &str = "Date,Fajr,Sunrise,Dhuhr,Asr,Maghrib,Isha\n20/03/2026,05:00,06:00,12:00,15:00,18:00,19:30";
 
-fn yellowing_time(calendar: &Calendar, key: &str) -> String {
+fn yellowing(calendar: &Calendar, key: &str) -> model::PrayerEvent {
     let events = model::day_events(calendar, key);
     let at = events.iter().position(|e| e.name == Prayer::Yellowing).unwrap();
     assert!(events[at - 1].name == Prayer::Asr && events[at + 1].name == Prayer::Maghrib);
     assert!(events[at - 1].timestamp < events[at].timestamp && events[at].timestamp < events[at + 1].timestamp);
-    events[at].time.clone()
+    events.into_iter().nth(at).unwrap()
 }
 
 #[test]
@@ -150,26 +220,26 @@ fn estimates_calendar_latitude_from_day_lengths() {
     assert!((nordhorn - 52.43).abs() < 0.2, "{nordhorn}");
     let cairo = bundled_calendar("cairo", 2026).latitude.unwrap();
     assert!((cairo - 30.04).abs() < 0.2, "{cairo}");
-    assert_eq!(model::parse_calendar(EQUINOX_ONLY_CSV).unwrap().latitude, None);
+    assert_eq!(model::parse_calendar(EQUINOX_ONLY_CSV, None).unwrap().latitude, None);
 }
 
 #[test]
 fn yellows_at_two_and_a_half_degrees_for_the_calendars_latitude() {
-    assert_eq!(yellowing_time(&bundled_calendar("nordhorn", 2026), "2026-11-23"), "16:01");
-    assert_eq!(yellowing_time(&bundled_calendar("cairo", 2026), "2026-11-23"), "16:39");
-    assert_eq!(yellowing_time(&model::parse_calendar(ENGLISH_CSV).unwrap(), "2026-06-01"), "21:29");
+    assert_eq!(yellowing(&bundled_calendar("nordhorn", 2026), "2026-11-23").timestamp, utc_ms(2026, 11, 23, 15, 1, 0));
+    assert_eq!(yellowing(&bundled_calendar("cairo", 2026), "2026-11-23").timestamp, utc_ms(2026, 11, 23, 14, 39, 0));
+    assert_eq!(yellowing(&model::parse_calendar(ENGLISH_CSV, None).unwrap(), "2026-06-01").time, "21:29");
 }
 
 #[test]
 fn skips_yellowing_without_a_latitude() {
-    let calendar = model::parse_calendar(EQUINOX_ONLY_CSV).unwrap();
+    let calendar = model::parse_calendar(EQUINOX_ONLY_CSV, None).unwrap();
     let events = model::day_events(&calendar, "2026-03-20");
     assert_eq!(events.iter().map(|e| e.name).collect::<Vec<_>>(), Prayer::ROW);
 }
 
 #[test]
 fn counts_down_to_yellowing_after_asr() {
-    let calendar = model::parse_calendar(ENGLISH_CSV).unwrap();
+    let calendar = model::parse_calendar(ENGLISH_CSV, None).unwrap();
     let next = model::snapshot(&calendar, local_ms(2026, 6, 1, 18, 0, 0)).next.unwrap();
     assert_eq!(next.name, Prayer::Yellowing);
     assert_eq!(next.prayer_date, "2026-06-01");
@@ -177,7 +247,7 @@ fn counts_down_to_yellowing_after_asr() {
 
 #[test]
 fn follows_each_time_with_the_next_one() {
-    let calendar = model::parse_calendar(ENGLISH_CSV).unwrap();
+    let calendar = model::parse_calendar(ENGLISH_CSV, None).unwrap();
     let events = model::day_events(&calendar, "2026-06-01");
     let following = |name: Prayer| {
         let event = events.iter().find(|e| e.name == name).unwrap();
@@ -191,7 +261,7 @@ fn follows_each_time_with_the_next_one() {
 
 #[test]
 fn notifies_sunrise_like_a_prayer() {
-    let calendar = model::parse_calendar(ENGLISH_CSV).unwrap();
+    let calendar = model::parse_calendar(ENGLISH_CSV, None).unwrap();
     let now = local_ms(2026, 6, 1, 5, 0, 30);
     let due = model::due_events(&calendar, now - 120_000, now, 120_000, 0);
     assert_eq!(due.iter().map(|e| e.name).collect::<Vec<_>>(), [Prayer::Sunrise]);
@@ -202,7 +272,7 @@ fn notifies_sunrise_like_a_prayer() {
 
 #[test]
 fn returns_prayer_events_crossed_during_a_wake_grace_window() {
-    let calendar = model::parse_calendar(ENGLISH_CSV).unwrap();
+    let calendar = model::parse_calendar(ENGLISH_CSV, None).unwrap();
     let now = local_ms(2026, 6, 1, 13, 16, 0);
     let due = model::due_events(&calendar, now - 120_000, now, 120_000, 0);
     assert_eq!(due.iter().map(|e| e.name).collect::<Vec<_>>(), [Prayer::Dhuhr]);
@@ -210,7 +280,7 @@ fn returns_prayer_events_crossed_during_a_wake_grace_window() {
 
 #[test]
 fn returns_prayer_reminders_15_minutes_before_each_event() {
-    let calendar = model::parse_calendar(ENGLISH_CSV).unwrap();
+    let calendar = model::parse_calendar(ENGLISH_CSV, None).unwrap();
     let reminder_time = local_ms(2026, 6, 1, 13, 0, 0);
     let due = model::due_events(&calendar, reminder_time - 2000, reminder_time, 120_000, 15 * 60 * 1000);
     assert_eq!(due.iter().map(|e| e.name).collect::<Vec<_>>(), [Prayer::Dhuhr]);
@@ -218,7 +288,7 @@ fn returns_prayer_reminders_15_minutes_before_each_event() {
 
 #[test]
 fn starts_the_last_third_after_two_thirds_of_the_maghrib_to_fajr_night() {
-    let calendar = model::parse_calendar(ENGLISH_CSV).unwrap();
+    let calendar = model::parse_calendar(ENGLISH_CSV, None).unwrap();
     let expected = local_ms(2026, 6, 2, 1, 19, 20);
     let events = model::last_third_events_around(&calendar, expected);
     let event = events.iter().find(|e| e.night_date == "2026-06-01").unwrap();
@@ -229,7 +299,7 @@ fn starts_the_last_third_after_two_thirds_of_the_maghrib_to_fajr_night() {
 
 #[test]
 fn returns_the_start_of_the_last_third_when_its_notification_becomes_due() {
-    let calendar = model::parse_calendar(ENGLISH_CSV).unwrap();
+    let calendar = model::parse_calendar(ENGLISH_CSV, None).unwrap();
     let now = local_ms(2026, 6, 2, 1, 19, 20);
     let due = model::due_last_third_events(&calendar, now - 2000, now, 120_000);
     assert_eq!(due.iter().map(|e| e.night_date.as_str()).collect::<Vec<_>>(), ["2026-06-01"]);
@@ -254,7 +324,7 @@ fn rejects_missing_columns_duplicate_dates_and_invalid_times() {
         ),
     ];
     for (csv, message) in cases {
-        let error = model::parse_calendar(csv).unwrap_err();
+        let error = model::parse_calendar(csv, None).unwrap_err();
         assert!(error.contains(message), "{error} does not mention {message}");
     }
 }

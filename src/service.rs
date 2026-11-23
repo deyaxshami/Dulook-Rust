@@ -11,6 +11,7 @@ use std::sync::mpsc::Sender;
 use std::time::{Duration, Instant, SystemTime};
 
 use chrono::{Datelike, Local};
+use chrono_tz::Tz;
 use regex::Regex;
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::{Map, Value, json};
@@ -458,9 +459,23 @@ impl Service {
         self.remaining_seconds = 0;
     }
 
+    fn calendar_source_timezone(&self) -> Result<Option<Tz>, String> {
+        let location = &self.settings().location;
+        if location == locations::CUSTOM {
+            return Ok(None);
+        }
+        if let Some(slug) = locations::downloaded_slug(location) {
+            let (_, installed) = self.downloaded_locations.iter().find(|(folder, _)| folder == slug)
+                .ok_or_else(|| format!("missing calendar metadata: {slug}"))?;
+            return installed.timezone.parse().map(Some)
+                .map_err(|_| format!("invalid calendar timezone: {}", installed.timezone));
+        }
+        Ok(locations::bundled_source_timezone(location))
+    }
+
     /// The custom CSV, or the bundled/downloaded location's current year with its neighbours
     /// so prayers around New Year still have the adjacent day.
-    fn calendar_sources(&self) -> Vec<PathBuf> {
+    fn calendar_sources(&self, source_timezone: Option<Tz>) -> Vec<PathBuf> {
         let settings = self.settings();
         if settings.location == locations::CUSTOM {
             if settings.calendar_path.is_empty() {
@@ -469,7 +484,7 @@ impl Service {
             return vec![PathBuf::from(&settings.effective_calendar_path)];
         }
         let years = {
-            let year = Local::now().year();
+            let year = model::calendar_date_at(now_ms(), source_timezone).year();
             year - 1..=year + 1
         };
         if let Some(slug) = locations::downloaded_slug(&settings.location) {
@@ -480,8 +495,8 @@ impl Service {
         years.map(|year| locations::calendar_file(&root, &settings.location, year)).collect()
     }
 
-    fn calendar_signatures(&self) -> Vec<(PathBuf, FileSignature)> {
-        self.calendar_sources()
+    fn calendar_signatures(&self, source_timezone: Option<Tz>) -> Vec<(PathBuf, FileSignature)> {
+        self.calendar_sources(source_timezone)
             .into_iter()
             .map(|path| {
                 let signature = file_signature(&path);
@@ -513,7 +528,17 @@ impl Service {
             return;
         }
 
-        self.calendar_files = self.calendar_signatures();
+        let source_timezone = match self.calendar_source_timezone() {
+            Ok(zone) => zone,
+            Err(error) => {
+                eprintln!("Dulook calendar validation failed: Error: {error}");
+                self.calendar_files.clear();
+                self.calendar_texts.clear();
+                self.clear_calendar(Some("invalidCalendar"));
+                return;
+            }
+        };
+        self.calendar_files = self.calendar_signatures(source_timezone);
         // A bundled or downloaded location needs the current year (the middle file); its neighbours are optional.
         let required = if custom { 0 } else { 1 };
         let mut texts = Vec::with_capacity(self.calendar_files.len());
@@ -529,7 +554,7 @@ impl Service {
             }
         }
         self.calendar_texts = texts;
-        self.load_calendar();
+        self.load_calendar(source_timezone);
     }
 
     /// A bundled location or a finished download.
@@ -753,13 +778,16 @@ impl Service {
 
     /// Reloads when a calendar file changes or the year rolls over to other bundled files.
     fn check_calendar_file(&mut self) {
-        if !self.calendar_files.is_empty() && self.calendar_signatures() != self.calendar_files {
+        if !self.calendar_files.is_empty()
+            && self.calendar_source_timezone().is_ok_and(|zone| self.calendar_signatures(zone) != self.calendar_files)
+        {
             self.reload_calendar();
         }
     }
 
-    fn load_calendar(&mut self) {
-        let parsed: Result<Vec<Calendar>, String> = self.calendar_texts.iter().map(|text| model::parse_calendar(text)).collect();
+    fn load_calendar(&mut self, source_timezone: Option<Tz>) {
+        let parsed: Result<Vec<Calendar>, String> =
+            self.calendar_texts.iter().map(|text| model::parse_calendar(text, source_timezone)).collect();
         match parsed.and_then(model::merge_calendars) {
             Ok(calendar) => {
                 self.calendar = Some(calendar);
@@ -778,19 +806,20 @@ impl Service {
     pub fn update_clock(&mut self, check_alerts: bool) {
         let now = now_ms();
         let current_offset = timezone_offset_minutes(now);
-        if !self.calendar_ready || self.calendar.is_none() {
+        let Some(calendar) = self.calendar.as_ref().filter(|_| self.calendar_ready) else {
             self.timezone_offset = current_offset;
             self.previous_tick = now;
             return;
-        }
+        };
         if current_offset != self.timezone_offset {
             self.timezone_offset = current_offset;
-            self.previous_tick = now;
-            self.load_calendar();
-            return;
+            if calendar.source_timezone().is_none() {
+                self.previous_tick = now;
+                self.load_calendar(None);
+                return;
+            }
         }
 
-        let Some(calendar) = self.calendar.as_ref() else { return };
         let snapshot = model::snapshot(calendar, now);
         let display_date = snapshot.next.as_ref().map_or_else(|| snapshot.date_key.clone(), |n| n.prayer_date.clone());
         let mut rows = model::day_events(calendar, &display_date);

@@ -13,6 +13,7 @@ use std::sync::LazyLock;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use chrono::{Days, NaiveDate};
+use chrono_tz::Tz;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -702,7 +703,7 @@ fn missing_time(value: &str) -> bool {
 }
 
 /// Converts a `get_period` HTML table of one whole year into Dulook's CSV format.
-pub fn period_csv(html: &str, year: i32) -> Result<String, String> {
+pub fn period_csv(html: &str, year: i32, source_timezone: Tz) -> Result<String, String> {
     let date = Regex::new(&format!(r"^\d{{2}}/\d{{2}}/{year}$")).unwrap();
     let mut rows: Vec<Vec<String>> = Vec::new();
     for row in ROW.captures_iter(html) {
@@ -746,7 +747,7 @@ pub fn period_csv(html: &str, year: i32) -> Result<String, String> {
     lines.push(HEADER.join(","));
     lines.extend(rows.iter().map(|row| row.iter().map(|cell| csv_cell(cell)).collect::<Vec<_>>().join(",")));
     let csv = lines.join("\r\n");
-    model::parse_calendar(&csv).map_err(|e| format!("invalid calendar for {year}: {e}"))?;
+    model::parse_calendar(&csv, Some(source_timezone)).map_err(|e| format!("invalid calendar for {year}: {e}"))?;
     Ok(csv)
 }
 
@@ -902,6 +903,7 @@ pub fn download(
             }
         }
     };
+    let source_timezone = location.timezone.parse().map_err(|_| DownloadError::Timezone)?;
     let slug = slug(query);
     let session = open_session(&location).map_err(DownloadError::Network)?;
     for (index, year) in years.iter().enumerate() {
@@ -909,7 +911,7 @@ pub fn download(
         let to = format!("31/12/{year}");
         let reply = session.json("app/get_period", &[("from", &from), ("to", &to)]).map_err(DownloadError::Network)?;
         let html = reply["html"].as_str().ok_or_else(|| DownloadError::Network(format!("get_period {year}: no html")))?;
-        let csv = period_csv(html, *year).map_err(DownloadError::Network)?;
+        let csv = period_csv(html, *year, source_timezone).map_err(DownloadError::Network)?;
         let path = dir.join(format!("{slug}_{year}.csv"));
         try_write_atomic(&path, &csv).map_err(|e| DownloadError::Network(format!("{}: {e}", path.display())))?;
         progress(index + 1, years.len());

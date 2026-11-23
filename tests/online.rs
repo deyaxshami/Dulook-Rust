@@ -1,4 +1,5 @@
 use chrono::{Days, NaiveDate};
+use chrono_tz::Europe::Berlin;
 use dulook::model;
 use dulook::online::{self, LocationMode, LocationRequest, OnlineLocation, OnlineQuery, PlaceSuggestion};
 use dulook::settings::Settings;
@@ -38,7 +39,7 @@ fn period_html(skip: Option<usize>) -> String {
 
 #[test]
 fn period_csv_normalises_a_whole_year() {
-    let csv = online::period_csv(&period_html(None), YEAR).unwrap();
+    let csv = online::period_csv(&period_html(None), YEAR, Berlin).unwrap();
     assert!(!csv.ends_with('\n'));
     let lines: Vec<&str> = csv.split("\r\n").collect();
     assert_eq!(lines.len(), 367);
@@ -47,13 +48,13 @@ fn period_csv_normalises_a_whole_year() {
     assert!(lines[11].starts_with("Tuesday,11/01/2028,"), "{}", lines[11]);
     assert!(lines[101].ends_with(&format!(",{}", isha(99))), "{}", lines[101]);
     assert_eq!(lines[51].split(',').count(), 9);
-    assert_eq!(model::parse_calendar(&csv).unwrap().row_count(), 366);
+    assert_eq!(model::parse_calendar(&csv, Some(Berlin)).unwrap().row_count(), 366);
 }
 
 #[test]
 fn period_csv_rejects_a_missing_day() {
-    assert!(online::period_csv(&period_html(Some(200)), YEAR).is_err());
-    assert!(online::period_csv(&period_html(None), YEAR + 1).is_err());
+    assert!(online::period_csv(&period_html(Some(200)), YEAR, Berlin).is_err());
+    assert!(online::period_csv(&period_html(None), YEAR + 1, Berlin).is_err());
 }
 
 fn place(country: &str, zip: &str, city: &str, street: &str, house_number: &str) -> OnlineQuery {

@@ -3,7 +3,8 @@
 use std::collections::{BTreeMap, HashMap};
 use std::sync::LazyLock;
 
-use chrono::{Datelike, Days, Local, LocalResult, NaiveDate, TimeZone};
+use chrono::{Days, Local, NaiveDate, TimeZone};
+use chrono_tz::Tz;
 use regex::Regex;
 use serde::Serialize;
 
@@ -82,6 +83,7 @@ pub struct Calendar {
     pub dates: BTreeMap<String, PrayerTimes>,
     /// Latitude estimated from the rows' day lengths; see `estimate_latitude`.
     pub latitude: Option<f64>,
+    source_timezone: Option<Tz>,
 }
 
 impl Calendar {
@@ -95,6 +97,10 @@ impl Calendar {
 
     pub fn last_date(&self) -> &str {
         self.dates.keys().next_back().map(String::as_str).unwrap_or("")
+    }
+
+    pub(crate) fn source_timezone(&self) -> Option<Tz> {
+        self.source_timezone
     }
 }
 
@@ -278,7 +284,7 @@ fn validate_prayer_order(prayers: &PrayerTimes, key: &str) -> Result<(), String>
     Ok(())
 }
 
-pub fn parse_calendar(csv: &str) -> Result<Calendar, String> {
+pub fn parse_calendar(csv: &str, source_timezone: Option<Tz>) -> Result<Calendar, String> {
     let text = csv.replace('\r', "");
     let meaningful: Vec<&str> = text.split('\n').filter(|line| !js_trim(line).is_empty()).collect();
     if meaningful.len() < 2 {
@@ -296,7 +302,7 @@ pub fn parse_calendar(csv: &str) -> Result<Calendar, String> {
         }
     }
 
-    let mut calendar = Calendar::default();
+    let mut calendar = Calendar { source_timezone, ..Calendar::default() };
     for line in &meaningful[1..] {
         let row = parse_csv_row(line)?;
         let cell = |name: &str| row.get(columns[name]).map(String::as_str).unwrap_or("");
@@ -314,7 +320,7 @@ pub fn parse_calendar(csv: &str) -> Result<Calendar, String> {
             parse_time(cell("isha"))?,
         ]);
         validate_prayer_order(&prayers, &key)?;
-        events_for_row(&key, &prayers)?;
+        row_timestamps(date, &prayers, source_timezone)?;
         calendar.dates.insert(key, prayers);
     }
 
@@ -336,8 +342,12 @@ pub fn parse_calendar(csv: &str) -> Result<Calendar, String> {
 
 /// Joins calendars of consecutive periods (one bundled CSV per year) into one.
 pub fn merge_calendars(calendars: impl IntoIterator<Item = Calendar>) -> Result<Calendar, String> {
-    let mut merged = Calendar::default();
+    let mut calendars = calendars.into_iter();
+    let mut merged = calendars.next().unwrap_or_default();
     for calendar in calendars {
+        if calendar.source_timezone != merged.source_timezone {
+            return Err("Mismatched calendar time zones".to_owned());
+        }
         for (key, prayers) in calendar.dates {
             if merged.dates.contains_key(&key) {
                 return Err(format!("Duplicate date: {key}"));
@@ -411,48 +421,42 @@ impl Timed for LastThirdEvent {
     }
 }
 
-pub fn events_for_row(key: &str, prayers: &PrayerTimes) -> Result<Vec<PrayerEvent>, String> {
-    let base = date_from_key(key).ok_or_else(|| format!("Invalid date: {key}"))?;
-    let mut events = Vec::with_capacity(Prayer::ROW.len());
+fn row_timestamps(date: NaiveDate, prayers: &PrayerTimes, source_timezone: Option<Tz>) -> Result<[i64; 6], String> {
+    let mut timestamps = [0; Prayer::ROW.len()];
     let mut day_offset = 0u64;
     let mut previous_minute: Option<u32> = None;
-    for prayer in Prayer::ROW {
-        let time = prayers.get(prayer);
+    for (index, time) in prayers.0.iter().enumerate() {
         let minute = minute_of_day(time);
         if previous_minute.is_some_and(|previous| minute < previous) {
             day_offset += 1;
         }
-        let invalid = || format!("Invalid local time: {key} {time}");
-        let target = base.checked_add_days(Days::new(day_offset)).ok_or_else(invalid)?;
+        let target = date.checked_add_days(Days::new(day_offset)).ok_or_else(|| format!("Invalid local time: {date} {time}"))?;
+        let invalid = || format!("Invalid local time: {target} {time}");
         let naive = target.and_hms_opt(minute / 60, minute % 60, 0).ok_or_else(invalid)?;
-        let instant = match Local.from_local_datetime(&naive) {
-            LocalResult::Single(t) => t,
-            LocalResult::Ambiguous(earliest, _) => earliest,
-            LocalResult::None => return Err(invalid()),
+        let timestamp = match source_timezone {
+            Some(zone) => zone.from_local_datetime(&naive).earliest().map(|t| t.timestamp_millis()),
+            None => Local.from_local_datetime(&naive).earliest().map(|t| t.timestamp_millis()),
         };
-        events.push(PrayerEvent {
-            key: format!("{key}|{}", prayer.name()),
-            prayer_date: key.to_owned(),
-            name: prayer,
-            time: time.to_owned(),
-            timestamp: instant.timestamp_millis(),
-        });
+        timestamps[index] = timestamp.ok_or_else(invalid)?;
         previous_minute = Some(minute);
     }
-    Ok(events)
+    Ok(timestamps)
 }
 
-fn local_today(now_ms: i64) -> String {
-    let date = Local
-        .timestamp_millis_opt(now_ms)
-        .single()
-        .map(|t| t.date_naive())
-        .unwrap_or_default();
-    format!("{:04}-{:02}-{:02}", date.year(), date.month(), date.day())
+fn local_time(timestamp: i64) -> Option<String> {
+    Some(Local.timestamp_millis_opt(timestamp).single()?.format("%H:%M").to_string())
+}
+
+pub(crate) fn calendar_date_at(timestamp: i64, source_timezone: Option<Tz>) -> NaiveDate {
+    match source_timezone {
+        Some(zone) => zone.timestamp_millis_opt(timestamp).single().map(|t| t.date_naive()),
+        None => Local.timestamp_millis_opt(timestamp).single().map(|t| t.date_naive()),
+    }
+    .unwrap_or_default()
 }
 
 pub fn events_around(calendar: &Calendar, now_ms: i64) -> Vec<PrayerEvent> {
-    let today = local_today(now_ms);
+    let today = date_key(calendar_date_at(now_ms, calendar.source_timezone));
     let mut events = Vec::new();
     for offset in -1..=2 {
         events.extend(day_events(calendar, &shifted_key(&today, offset)));
@@ -461,25 +465,24 @@ pub fn events_around(calendar: &Calendar, now_ms: i64) -> Vec<PrayerEvent> {
     events
 }
 
-fn prayer_event_for_row(key: &str, prayers: &PrayerTimes, prayer: Prayer) -> Option<PrayerEvent> {
-    events_for_row(key, prayers).ok()?.into_iter().find(|event| event.name == prayer)
-}
-
 /// Maghrib of `night_date` and Fajr of the following day, when both rows exist and Fajr is later.
-fn night_bounds(calendar: &Calendar, night_date: &str) -> Option<(PrayerEvent, PrayerEvent)> {
-    let next_date = shifted_key(night_date, 1);
-    let maghrib = prayer_event_for_row(night_date, calendar.dates.get(night_date)?, Prayer::Maghrib)?;
-    let fajr = prayer_event_for_row(&next_date, calendar.dates.get(&next_date)?, Prayer::Fajr)?;
-    (fajr.timestamp > maghrib.timestamp).then_some((maghrib, fajr))
+fn night_bounds(calendar: &Calendar, night_date: &str) -> Option<(i64, i64)> {
+    let date = date_from_key(night_date)?;
+    let next_date = date.succ_opt()?;
+    let night = row_timestamps(date, calendar.dates.get(night_date)?, calendar.source_timezone).ok()?;
+    let morning = row_timestamps(next_date, calendar.dates.get(&date_key(next_date))?, calendar.source_timezone).ok()?;
+    let maghrib = night[Prayer::Maghrib.row_index()?];
+    let fajr = morning[Prayer::Fajr.row_index()?];
+    (fajr > maghrib).then_some((maghrib, fajr))
 }
 
 /// Islamic midnight of the night that begins at Maghrib on `night_date`: halfway to the
 /// next day's Fajr, truncated to the minute.
 pub fn midnight_event(calendar: &Calendar, night_date: &str) -> Option<PrayerEvent> {
     let (maghrib, fajr) = night_bounds(calendar, night_date)?;
-    let middle = maghrib.timestamp + (fajr.timestamp - maghrib.timestamp) / 2;
+    let middle = maghrib + (fajr - maghrib) / 2;
     let timestamp = middle - middle.rem_euclid(60_000);
-    let time = Local.timestamp_millis_opt(timestamp).single()?.format("%H:%M").to_string();
+    let time = local_time(timestamp)?;
     Some(PrayerEvent {
         key: format!("{night_date}|Midnight"),
         prayer_date: night_date.to_owned(),
@@ -504,7 +507,7 @@ fn yellowing_event(latitude: Option<f64>, key: &str, row: &[PrayerEvent]) -> Opt
     if !(asr.timestamp < timestamp && timestamp < maghrib.timestamp) {
         return None;
     }
-    let time = Local.timestamp_millis_opt(timestamp).single()?.format("%H:%M").to_string();
+    let time = local_time(timestamp)?;
     Some(PrayerEvent {
         key: format!("{key}|Yellowing"),
         prayer_date: key.to_owned(),
@@ -522,11 +525,25 @@ pub fn following_event(calendar: &Calendar, event: &PrayerEvent) -> Option<Praye
 /// Every time of `key` in [`Prayer::ALL`] order; Yellowing only when computable, Midnight
 /// only when the next day's row exists.
 pub fn day_events(calendar: &Calendar, key: &str) -> Vec<PrayerEvent> {
-    let mut events = calendar
-        .dates
-        .get(key)
-        .and_then(|prayers| events_for_row(key, prayers).ok())
-        .unwrap_or_default();
+    let Some(prayers) = calendar.dates.get(key) else { return Vec::new() };
+    let Some(date) = date_from_key(key) else { return Vec::new() };
+    let Ok(timestamps) = row_timestamps(date, prayers, calendar.source_timezone) else { return Vec::new() };
+    let mut events = Vec::with_capacity(Prayer::ALL.len());
+    for (index, (name, timestamp)) in Prayer::ROW.into_iter().zip(timestamps).enumerate() {
+        let time = if calendar.source_timezone.is_some() {
+            let Some(time) = local_time(timestamp) else { return Vec::new() };
+            time
+        } else {
+            prayers.0[index].clone()
+        };
+        events.push(PrayerEvent {
+            key: format!("{key}|{}", name.name()),
+            prayer_date: key.to_owned(),
+            name,
+            time,
+            timestamp,
+        });
+    }
     if let Some(yellowing) = yellowing_event(calendar.latitude, key, &events) {
         let at = events.iter().position(|event| event.name == Prayer::Maghrib).unwrap_or(events.len());
         events.insert(at, yellowing);
@@ -536,18 +553,18 @@ pub fn day_events(calendar: &Calendar, key: &str) -> Vec<PrayerEvent> {
 }
 
 pub fn last_third_events_around(calendar: &Calendar, now_ms: i64) -> Vec<LastThirdEvent> {
-    let today = local_today(now_ms);
+    let today = date_key(calendar_date_at(now_ms, calendar.source_timezone));
     let mut events = Vec::new();
     for offset in -2..=1 {
         let night_date = shifted_key(&today, offset);
         let Some((maghrib, fajr)) = night_bounds(calendar, &night_date) else { continue };
-        let timestamp = (maghrib.timestamp as f64 + (fajr.timestamp - maghrib.timestamp) as f64 * 2.0 / 3.0).round() as i64;
+        let timestamp = (maghrib as f64 + (fajr - maghrib) as f64 * 2.0 / 3.0).round() as i64;
         events.push(LastThirdEvent {
             key: format!("{night_date}|last-third"),
             night_date,
             timestamp,
-            maghrib_timestamp: maghrib.timestamp,
-            fajr_timestamp: fajr.timestamp,
+            maghrib_timestamp: maghrib,
+            fajr_timestamp: fajr,
         });
     }
     events
@@ -563,7 +580,7 @@ pub struct Snapshot {
 pub fn snapshot(calendar: &Calendar, now_ms: i64) -> Snapshot {
     let next = events_around(calendar, now_ms).into_iter().find(|event| event.timestamp >= now_ms);
     let remaining_seconds = next.as_ref().map_or(0, |event| ((event.timestamp - now_ms) / 1000).max(0));
-    Snapshot { date_key: local_today(now_ms), next, remaining_seconds }
+    Snapshot { date_key: date_key(calendar_date_at(now_ms, calendar.source_timezone)), next, remaining_seconds }
 }
 
 pub fn events_due<T: Timed + Clone>(events: &[T], previous_ms: i64, now_ms: i64, grace_ms: i64, advance_ms: i64) -> Vec<T> {

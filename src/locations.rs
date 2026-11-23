@@ -20,6 +20,14 @@ pub fn downloaded_slug(location: &str) -> Option<&str> {
     location.strip_prefix(DOWNLOADED).filter(|slug| !slug.is_empty())
 }
 
+pub fn bundled_source_timezone(location: &str) -> Option<chrono_tz::Tz> {
+    match location {
+        "alexandria" | "cairo" | "qalyub" | "sohag" => Some(chrono_tz::Africa::Cairo),
+        "3p-services" | "nordhorn" | "ricklingen" | "veldhausen" => Some(chrono_tz::Europe::Berlin),
+        _ => None,
+    }
+}
+
 pub fn calendar_file(root: &Path, location: &str, year: i32) -> PathBuf {
     root.join(location).join(format!("prayer-times-{year}-{location}.csv"))
 }
